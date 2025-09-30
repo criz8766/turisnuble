@@ -77,18 +77,18 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
 
-        // --- LÓGICA DE ALTURA DEFINITIVA ---
+        // --- LÓGICA DE ALTURA CORREGIDA ---
 
-        // 1. Le decimos que la altura máxima NO depende del contenido.
-        bottomSheetBehavior.isFitToContents = false
-
-        // 2. Altura inicial (colapsado): solo las pestañas.
-        val peekHeightInPixels = (56 * resources.displayMetrics.density).toInt()
-        bottomSheetBehavior.peekHeight = peekHeightInPixels
-
-        // 3. Altura máxima (expandido): 1/4 de la pantalla.
+        // 1. Calculamos la altura deseada (1/4 de la pantalla)
         val screenHeight = resources.displayMetrics.heightPixels
-        bottomSheetBehavior.expandedOffset = 50
+        val quarterScreenHeight = screenHeight / 3
+
+        // 2. Establecemos esa altura como la máxima altura que puede alcanzar el panel
+        bottomSheetBehavior.maxHeight = quarterScreenHeight
+
+        // 3. Definimos la altura en estado colapsado (peekHeight)
+        val peekHeightInPixels = (46 * resources.displayMetrics.density).toInt()
+        bottomSheetBehavior.peekHeight = peekHeightInPixels
 
         // 4. Estado inicial.
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
@@ -137,11 +137,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun setupBottomSheetCallback() {
         bottomSheetBehavior.addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
             override fun onStateChanged(bottomSheet: View, newState: Int) {
-                if (newState == BottomSheetBehavior.STATE_DRAGGING || newState == BottomSheetBehavior.STATE_SETTLING) {
-                    bottomSheet.setLayerType(View.LAYER_TYPE_HARDWARE, null)
-                } else {
-                    bottomSheet.setLayerType(View.LAYER_TYPE_NONE, null)
-                }
+                // No es necesario hacer cambios aquí ahora
             }
 
             override fun onSlide(bottomSheet: View, slideOffset: Float) {

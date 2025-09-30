@@ -28,9 +28,8 @@ class TurismoFragment : Fragment() {
         // 1. Mejora el rendimiento si los items no cambian de tamaño
         recyclerView.setHasFixedSize(true)
 
-        // 2. Le dice al RecyclerView que no gestione el scroll, el NestedScrollView lo hará.
-        // Esto es crucial para que funcione correctamente.
-        recyclerView.isNestedScrollingEnabled = false
+        // 2. LA SIGUIENTE LÍNEA HA SIDO ELIMINADA PARA CORREGIR EL SCROLL
+        // recyclerView.isNestedScrollingEnabled = false
 
         return view
     }
