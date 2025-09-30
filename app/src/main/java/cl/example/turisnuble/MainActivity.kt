@@ -6,14 +6,18 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.tabs.TabLayout
+import com.google.android.material.tabs.TabLayoutMediator
 import com.google.transit.realtime.GtfsRealtime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -41,7 +45,12 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var locationFab: FloatingActionButton
     private lateinit var bottomSheetBehavior: BottomSheetBehavior<FrameLayout>
 
+    private lateinit var tabLayout: TabLayout
+    private lateinit var viewPager: ViewPager2
+    private lateinit var pagerAdapter: ViewPagerAdapter
+
     private val busMarkers = mutableListOf<Marker>()
+    private val turismoMarkers = mutableListOf<Marker>()
 
     private val apiService: GtfsApiService by lazy {
         Retrofit.Builder()
@@ -68,11 +77,26 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
 
-        // --- CORRECCIÓN AQUÍ ---
+        // --- LÓGICA DE ALTURA DEFINITIVA ---
+
+        // 1. Le decimos que la altura máxima NO depende del contenido.
+        bottomSheetBehavior.isFitToContents = false
+
+        // 2. Altura inicial (colapsado): solo las pestañas.
+        val peekHeightInPixels = (56 * resources.displayMetrics.density).toInt()
+        bottomSheetBehavior.peekHeight = peekHeightInPixels
+
+        // 3. Altura máxima (expandido): 1/4 de la pantalla.
+        val screenHeight = resources.displayMetrics.heightPixels
+        bottomSheetBehavior.expandedOffset = 50
+
+        // 4. Estado inicial.
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
 
-        bottomSheetBehavior.peekHeight = 150
+        // --- FIN DE LA LÓGICA ---
 
+        setupTabs()
+        setupBottomSheetCallback()
 
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
@@ -92,6 +116,41 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
+    private fun setupTabs() {
+        tabLayout = findViewById(R.id.tab_layout)
+        viewPager = findViewById(R.id.view_pager)
+        pagerAdapter = ViewPagerAdapter(this)
+        viewPager.adapter = pagerAdapter
+
+        TabLayoutMediator(tabLayout, viewPager) { tab, position ->
+            tab.text = when (position) {
+                0 -> "Rutas cerca"
+                1 -> "Turismo"
+                2 -> "Rutas"
+                else -> null
+            }
+        }.attach()
+
+        viewPager.isUserInputEnabled = false
+    }
+
+    private fun setupBottomSheetCallback() {
+        bottomSheetBehavior.addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
+            override fun onStateChanged(bottomSheet: View, newState: Int) {
+                if (newState == BottomSheetBehavior.STATE_DRAGGING || newState == BottomSheetBehavior.STATE_SETTLING) {
+                    bottomSheet.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                } else {
+                    bottomSheet.setLayerType(View.LAYER_TYPE_NONE, null)
+                }
+            }
+
+            override fun onSlide(bottomSheet: View, slideOffset: Float) {
+                // No necesitamos hacer nada aquí
+            }
+        })
+    }
+
+
     override fun onMapReady(mapLibreMap: MapLibreMap) {
         this.map = mapLibreMap
         val styleUrl = "https://tiles.openfreemap.org/styles/liberty"
@@ -99,6 +158,25 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         map.setStyle(styleUrl) { style ->
             enableLocation(style)
             startBusDataFetching()
+            addTurismoMarkers()
+        }
+    }
+
+    // ... (El resto del archivo MainActivity.kt permanece sin cambios)
+    private fun addTurismoMarkers() {
+        val iconFactory = IconFactory.getInstance(this@MainActivity)
+        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_turismo)
+        val scaledBitmap = Bitmap.createScaledBitmap(originalBitmap, 80, 80, false)
+        val icon = iconFactory.fromBitmap(scaledBitmap)
+
+        for (punto in DatosTurismo.puntosTuristicos) {
+            val marker = map.addMarker(MarkerOptions()
+                .position(LatLng(punto.latitud, punto.longitud))
+                .title(punto.nombre)
+                .snippet(punto.direccion)
+                .icon(icon)
+            )
+            turismoMarkers.add(marker)
         }
     }
 
@@ -156,7 +234,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                     .icon(icon)
                 )
                 busMarkers.add(marker)
-                Log.d("API_SUCCESS", "  -> Bus ID: $busId, Lat: ${position.latitude}, Lon: ${position.longitude}")
             }
         }
     }
