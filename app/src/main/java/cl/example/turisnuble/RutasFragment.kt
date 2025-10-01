@@ -1,31 +1,41 @@
 package cl.example.turisnuble
 
+import android.content.Context
 import android.os.Bundle
-import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
+import androidx.fragment.app.Fragment
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 
-// TODO: Rename parameter arguments, choose names that match
-// the fragment initialization parameters, e.g. ARG_ITEM_NUMBER
-private const val ARG_PARAM1 = "param1"
-private const val ARG_PARAM2 = "param2"
+// Interfaz para comunicar al MainActivity qué ruta debe dibujar
+interface RouteDrawer {
+    fun drawRoute(fileName: String, color: String)
+    fun clearRoutes()
+}
 
-/**
- * A simple [Fragment] subclass.
- * Use the [RutasFragment.newInstance] factory method to
- * create an instance of this fragment.
- */
+// --- CLASE DE DATOS ACTUALIZADA ---
+// Ahora tiene campos separados para el título y el subtítulo
+data class RutaInfo(
+    val linea: String,
+    val recorrido: String,
+    val fileName: String,
+    val color: String
+)
+
+// --- Fragmento que muestra la lista de rutas ---
 class RutasFragment : Fragment() {
-    // TODO: Rename and change types of parameters
-    private var param1: String? = null
-    private var param2: String? = null
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        arguments?.let {
-            param1 = it.getString(ARG_PARAM1)
-            param2 = it.getString(ARG_PARAM2)
+    private var routeDrawer: RouteDrawer? = null
+
+    override fun onAttach(context: Context) {
+        super.onAttach(context)
+        if (context is RouteDrawer) {
+            routeDrawer = context
+        } else {
+            throw RuntimeException("$context must implement RouteDrawer")
         }
     }
 
@@ -33,27 +43,59 @@ class RutasFragment : Fragment() {
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        // Inflate the layout for this fragment
-        return inflater.inflate(R.layout.fragment_rutas, container, false)
+        val view = inflater.inflate(R.layout.fragment_rutas, container, false)
+        val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_view_rutas)
+        recyclerView.layoutManager = LinearLayoutManager(context)
+
+        // --- LISTA DE RUTAS ACTUALIZADA con el nuevo formato ---
+        val listaDeRutas = listOf(
+            RutaInfo("Línea 3", "Agronomía - El Tejar", "linea_3_ida.kml", "#FF0000")
+            // Puedes añadir más rutas aquí, siguiendo el mismo formato
+            // Ejemplo: RutaInfo("Línea 4", "Río Viejo - lansa", "linea_4_ida.kml", "#0000FF")
+        )
+
+        val adapter = RutasAdapter(listaDeRutas) { rutaSeleccionada ->
+            routeDrawer?.clearRoutes()
+            routeDrawer?.drawRoute(rutaSeleccionada.fileName, rutaSeleccionada.color)
+        }
+        recyclerView.adapter = adapter
+
+        return view
     }
 
-    companion object {
-        /**
-         * Use this factory method to create a new instance of
-         * this fragment using the provided parameters.
-         *
-         * @param param1 Parameter 1.
-         * @param param2 Parameter 2.
-         * @return A new instance of fragment RutasFragment.
-         */
-        // TODO: Rename and change types and number of parameters
-        @JvmStatic
-        fun newInstance(param1: String, param2: String) =
-            RutasFragment().apply {
-                arguments = Bundle().apply {
-                    putString(ARG_PARAM1, param1)
-                    putString(ARG_PARAM2, param2)
-                }
-            }
+    override fun onDetach() {
+        super.onDetach()
+        routeDrawer = null
     }
+}
+
+
+// --- ADAPTADOR ACTUALIZADO ---
+class RutasAdapter(
+    private val rutas: List<RutaInfo>,
+    private val onItemClick: (RutaInfo) -> Unit
+) : RecyclerView.Adapter<RutasAdapter.RutaViewHolder>() {
+
+    // ViewHolder ahora obtiene referencias a los dos TextViews
+    class RutaViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val nombreLinea: TextView = view.findViewById(R.id.nombre_linea)
+        val nombreRecorrido: TextView = view.findViewById(R.id.nombre_recorrido)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RutaViewHolder {
+        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_ruta, parent, false)
+        return RutaViewHolder(view)
+    }
+
+    // onBindViewHolder ahora asigna texto a ambos TextViews
+    override fun onBindViewHolder(holder: RutaViewHolder, position: Int) {
+        val ruta = rutas[position]
+        holder.nombreLinea.text = ruta.linea
+        holder.nombreRecorrido.text = ruta.recorrido
+        holder.itemView.setOnClickListener {
+            onItemClick(ruta)
+        }
+    }
+
+    override fun getItemCount() = rutas.size
 }
