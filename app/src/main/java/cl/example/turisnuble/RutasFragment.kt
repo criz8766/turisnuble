@@ -10,22 +10,22 @@ import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
-// Interfaz para comunicar al MainActivity qué ruta debe dibujar
+// --- INTERFAZ ACTUALIZADA ---
+// Ahora pasamos el objeto RutaInfo completo
 interface RouteDrawer {
-    fun drawRoute(fileName: String, color: String)
+    fun drawRoute(routeInfo: RutaInfo)
     fun clearRoutes()
 }
 
-// --- CLASE DE DATOS ACTUALIZADA ---
-// Ahora tiene campos separados para el título y el subtítulo
 data class RutaInfo(
     val linea: String,
     val recorrido: String,
     val fileName: String,
-    val color: String
+    val color: String,
+    val routeId: String,
+    val directionId: Int
 )
 
-// --- Fragmento que muestra la lista de rutas ---
 class RutasFragment : Fragment() {
 
     private var routeDrawer: RouteDrawer? = null
@@ -47,16 +47,30 @@ class RutasFragment : Fragment() {
         val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_view_rutas)
         recyclerView.layoutManager = LinearLayoutManager(context)
 
-        // --- LISTA DE RUTAS ACTUALIZADA con el nuevo formato ---
         val listaDeRutas = listOf(
-            RutaInfo("Línea 3", "Agronomía - El Tejar", "linea_3_ida.kml", "#FF0000")
-            // Puedes añadir más rutas aquí, siguiendo el mismo formato
-            // Ejemplo: RutaInfo("Línea 4", "Río Viejo - lansa", "linea_4_ida.kml", "#0000FF")
+            RutaInfo(
+                linea = "Línea 3",
+                recorrido = "Ida: Agronomía - El Tejar",
+                fileName = "linea_3_ida.kml",
+                color = "#FF0000",
+                routeId = "468",
+                directionId = 0
+            ),
+            RutaInfo(
+                linea = "Línea 3",
+                recorrido = "Vuelta: El Tejar - Agronomía",
+                fileName = "linea_3_vuelta.kml",
+                color = "#CC0000",
+                routeId = "468",
+                directionId = 1
+            )
         )
 
+        // --- LLAMADA ACTUALIZADA ---
+        // Pasamos el objeto completo al hacer clic
         val adapter = RutasAdapter(listaDeRutas) { rutaSeleccionada ->
             routeDrawer?.clearRoutes()
-            routeDrawer?.drawRoute(rutaSeleccionada.fileName, rutaSeleccionada.color)
+            routeDrawer?.drawRoute(rutaSeleccionada)
         }
         recyclerView.adapter = adapter
 
@@ -69,14 +83,11 @@ class RutasFragment : Fragment() {
     }
 }
 
-
-// --- ADAPTADOR ACTUALIZADO ---
 class RutasAdapter(
     private val rutas: List<RutaInfo>,
     private val onItemClick: (RutaInfo) -> Unit
 ) : RecyclerView.Adapter<RutasAdapter.RutaViewHolder>() {
 
-    // ViewHolder ahora obtiene referencias a los dos TextViews
     class RutaViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val nombreLinea: TextView = view.findViewById(R.id.nombre_linea)
         val nombreRecorrido: TextView = view.findViewById(R.id.nombre_recorrido)
@@ -87,7 +98,6 @@ class RutasAdapter(
         return RutaViewHolder(view)
     }
 
-    // onBindViewHolder ahora asigna texto a ambos TextViews
     override fun onBindViewHolder(holder: RutaViewHolder, position: Int) {
         val ruta = rutas[position]
         holder.nombreLinea.text = ruta.linea

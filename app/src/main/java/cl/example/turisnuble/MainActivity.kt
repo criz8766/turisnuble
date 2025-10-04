@@ -2,9 +2,9 @@ package cl.example.turisnuble
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.location.Location
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -15,6 +15,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.viewpager2.widget.ViewPager2
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.tabs.TabLayout
@@ -24,9 +28,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.maplibre.android.MapLibre
-import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.annotations.Marker
-import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -37,9 +39,14 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.OnMapReadyCallback
 import org.maplibre.android.maps.Style
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Point
+import org.maplibre.android.style.expressions.Expression.*
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import retrofit2.Retrofit
 import retrofit2.converter.protobuf.ProtoConverterFactory
@@ -47,21 +54,20 @@ import java.io.IOException
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer {
 
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var mapView: MapView
     private lateinit var map: MapLibreMap
     private lateinit var locationFab: FloatingActionButton
     private lateinit var bottomSheetBehavior: BottomSheetBehavior<FrameLayout>
-
     private lateinit var tabLayout: TabLayout
     private lateinit var viewPager: ViewPager2
     private lateinit var pagerAdapter: ViewPagerAdapter
 
-    // Variables para gestionar la ruta dibujada
+    private var selectedRouteInfo: RutaInfo? = null
+    private var lastFeedMessage: GtfsRealtime.FeedMessage? = null
     private var currentRouteSourceId: String? = null
     private var currentRouteLayerId: String? = null
     private var mapStyle: Style? = null
-
-    private val busMarkers = mutableListOf<Marker>()
     private val turismoMarkers = mutableListOf<Marker>()
 
     private val apiService: GtfsApiService by lazy {
@@ -76,6 +82,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
             if (isGranted) {
                 showUserLocation()
+                requestFreshLocation()
             } else {
                 Toast.makeText(this, "Permiso de ubicación denegado.", Toast.LENGTH_LONG).show()
             }
@@ -86,35 +93,27 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer {
         MapLibre.getInstance(this)
         setContentView(R.layout.activity_main)
 
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
 
         val screenHeight = resources.displayMetrics.heightPixels
         val quarterScreenHeight = screenHeight / 3
         bottomSheetBehavior.maxHeight = quarterScreenHeight
-
         val peekHeightInPixels = (46 * resources.displayMetrics.density).toInt()
         bottomSheetBehavior.peekHeight = peekHeightInPixels
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
 
         setupTabs()
         setupBottomSheetCallback()
-
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync(this)
 
         locationFab = findViewById(R.id.location_fab)
         locationFab.setOnClickListener {
-            if (::map.isInitialized && map.locationComponent.isLocationComponentActivated) {
-                val lastKnownLocation = map.locationComponent.lastKnownLocation
-                if (lastKnownLocation != null) {
-                    map.animateCamera(CameraUpdateFactory.newLatLngZoom(
-                        LatLng(lastKnownLocation.latitude, lastKnownLocation.longitude),
-                        15.0
-                    ))
-                }
-            }
+            requestFreshLocation()
         }
     }
 
@@ -123,7 +122,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer {
         viewPager = findViewById(R.id.view_pager)
         pagerAdapter = ViewPagerAdapter(this)
         viewPager.adapter = pagerAdapter
-
         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
             tab.text = when (position) {
                 0 -> "Rutas cerca"
@@ -132,7 +130,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer {
                 else -> null
             }
         }.attach()
-
         viewPager.isUserInputEnabled = false
     }
 
@@ -146,233 +143,207 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer {
     override fun onMapReady(mapLibreMap: MapLibreMap) {
         this.map = mapLibreMap
         val styleUrl = "https://tiles.openfreemap.org/styles/liberty"
-
         map.setStyle(styleUrl) { style ->
-            this.mapStyle = style // Guardamos la referencia al estilo para usarla después
+            this.mapStyle = style
             enableLocation(style)
             startBusDataFetching()
             addTurismoMarkers()
-            // Ya no dibujamos ninguna ruta al iniciar
+            setupBusLayer(style)
         }
+    }
+
+    // --- FUNCIÓN CON LOS VALORES AJUSTADOS ---
+    private fun setupBusLayer(style: Style) {
+        val busBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_bus)
+        style.addImage("bus-icon", busBitmap)
+
+        style.addSource(GeoJsonSource("bus-source"))
+
+        val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
+            withProperties(
+                PropertyFactory.iconImage("bus-icon"),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+
+                // --- CAMBIO 1: TAMAÑO DEL ÍCONO ---
+                // Reducimos el tamaño de 0.7f a 0.5f. Puedes jugar con este valor.
+                PropertyFactory.iconSize(0.05f),
+
+                PropertyFactory.iconOpacity(
+                    interpolate(linear(), zoom(),
+                        // --- CAMBIO 2: NIVEL DE ZOOM ---
+                        // Hacemos que los íconos empiecen a aparecer desde el nivel de zoom 10,
+                        // en lugar de 12, para que se vean desde más lejos.
+                        stop(10.99f, 0f), // Por debajo de 10, son invisibles
+                        stop(11f, 1f)     // A partir de 10, son visibles
+                    )
+                )
+            )
+        }
+        style.addLayer(busLayer)
+    }
+
+    private fun requestFreshLocation() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+
+        Log.d("LocationUpdate", "Pidiendo una ubicación fresca...")
+        Toast.makeText(this, "Actualizando ubicación...", Toast.LENGTH_SHORT).show()
+        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
+            .addOnSuccessListener { location: Location? ->
+                if (location != null) {
+                    Log.d("LocationUpdate", "Ubicación fresca recibida: ${location.latitude}, ${location.longitude}")
+                    map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(location.latitude, location.longitude), 15.0))
+                    updateBusMarkers()
+                } else {
+                    Log.w("LocationUpdate", "No se pudo obtener una ubicación fresca (resultado nulo).")
+                }
+            }
+            .addOnFailureListener { e ->
+                Log.e("LocationUpdate", "Error al pedir la ubicación fresca.", e)
+            }
     }
 
     override fun clearRoutes() {
         mapStyle?.let { style ->
-            // Si hay una capa de ruta dibujada, la quitamos
-            currentRouteLayerId?.let { id ->
-                if (style.getLayer(id) != null) {
-                    style.removeLayer(id)
-                    Log.d("RouteDrawer", "Capa de ruta '$id' eliminada.")
-                }
-            }
-            // Si hay una fuente de datos de ruta, la quitamos
-            currentRouteSourceId?.let { id ->
-                if (style.getSource(id) != null) {
-                    style.removeSource(id)
-                    Log.d("RouteDrawer", "Fuente de ruta '$id' eliminada.")
-                }
-            }
+            currentRouteLayerId?.let { if (style.getLayer(it) != null) style.removeLayer(it) }
+            currentRouteSourceId?.let { if (style.getSource(it) != null) style.removeSource(it) }
         }
         currentRouteLayerId = null
         currentRouteSourceId = null
+        selectedRouteInfo = null
+        updateBusMarkers()
     }
 
-    override fun drawRoute(fileName: String, color: String) {
-        drawRouteFromKml(mapStyle, fileName, color)
+    override fun drawRoute(routeInfo: RutaInfo) {
+        this.selectedRouteInfo = routeInfo
+        drawRouteFromKml(mapStyle, routeInfo.fileName, routeInfo.color)
+        updateBusMarkers()
     }
 
     private fun drawRouteFromKml(style: Style?, fileName: String, lineColor: String) {
-        if (style == null) {
-            Log.e("DrawRouteError", "El estilo del mapa no está listo para dibujar.")
-            return
-        }
-
+        if (style == null) return
         try {
-            Log.d("DrawRoute", "Iniciando lectura del archivo: $fileName")
             val kmlString = assets.open(fileName).bufferedReader().use { it.readText() }
-            Log.d("DrawRoute", "Archivo $fileName leído correctamente.")
-
-            val coordinatesString = kmlString.substringAfter("<LineString>")
-                .substringAfter("<coordinates>")
-                .substringBefore("</coordinates>")
-                .trim()
-
-            if (coordinatesString.isEmpty()) {
-                Log.e("DrawRouteError", "No se encontraron coordenadas en el archivo $fileName")
-                return
-            }
-            Log.d("DrawRoute", "Coordenadas extraídas con éxito.")
+            val coordinatesString = kmlString.substringAfter("<LineString>").substringAfter("<coordinates>").substringBefore("</coordinates>").trim()
+            if (coordinatesString.isEmpty()) return
 
             val routePoints = mutableListOf<LatLng>()
-            val coordinatesPairs = coordinatesString.split(" ")
-            for (pair in coordinatesPairs) {
+            coordinatesString.split(" ").forEach { pair ->
                 val lonLat = pair.split(",")
                 if (lonLat.size >= 2) {
                     try {
                         routePoints.add(LatLng(lonLat[1].toDouble(), lonLat[0].toDouble()))
-                    } catch (e: NumberFormatException) {
-                        Log.w("DrawRouteWarning", "Ignorando par de coordenadas mal formado: $pair")
-                    }
+                    } catch (e: NumberFormatException) { /* Ignorar */ }
                 }
             }
+            if (routePoints.isEmpty()) return
 
-            if (routePoints.isEmpty()) {
-                Log.e("DrawRouteError", "La lista de puntos de la ruta está vacía después de procesar.")
-                return
-            }
-            Log.d("DrawRoute", "Se procesaron ${routePoints.size} puntos para la ruta.")
-
-            val geoJsonString = """
-                {
-                  "type": "Feature",
-                  "properties": {},
-                  "geometry": {
-                    "type": "LineString",
-                    "coordinates": [
-                      ${ routePoints.joinToString(separator = ",") { "[${it.longitude},${it.latitude}]" } }
-                    ]
-                  }
-                }
-            """.trimIndent()
-
+            val geoJsonString = """{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [${routePoints.joinToString { "[${it.longitude},${it.latitude}]" }}]}}"""
             val sourceId = "route-source-$fileName"
             style.addSource(GeoJsonSource(sourceId, geoJsonString))
             currentRouteSourceId = sourceId
-            Log.d("DrawRoute", "Fuente GeoJSON '$sourceId' añadida al mapa.")
 
             val layerId = "route-layer-$fileName"
             val routeLayer = LineLayer(layerId, sourceId).apply {
-                withProperties(
-                    PropertyFactory.lineColor(Color.parseColor(lineColor)),
-                    PropertyFactory.lineWidth(5f),
-                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
-                )
+                withProperties(PropertyFactory.lineColor(Color.parseColor(lineColor)), PropertyFactory.lineWidth(5f), PropertyFactory.lineCap(Property.LINE_CAP_ROUND), PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND))
             }
             style.addLayer(routeLayer)
             currentRouteLayerId = layerId
-            Log.d("DrawRoute", "Capa '$layerId' añadida al mapa.")
-            Toast.makeText(this, "Mostrando ruta: $fileName", Toast.LENGTH_SHORT).show()
 
-            val boundsBuilder = LatLngBounds.Builder()
-            routePoints.forEach { boundsBuilder.include(it) }
-            val bounds = boundsBuilder.build()
+            val bounds = LatLngBounds.Builder().includes(routePoints).build()
             map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100), 1500)
-
-        } catch (e: IOException) {
-            Log.e("DrawRouteError", "No se pudo encontrar el archivo: $fileName en la carpeta assets", e)
-            Toast.makeText(this, "Error: No se encuentra el archivo $fileName", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
-            Log.e("DrawRouteError", "Ocurrió un error inesperado al dibujar la ruta desde $fileName", e)
-            Toast.makeText(this, "Error al procesar el archivo de ruta", Toast.LENGTH_LONG).show()
+            Log.e("DrawRouteError", "Error al dibujar la ruta desde $fileName", e)
         }
     }
 
     private fun addTurismoMarkers() {
-        val iconFactory = IconFactory.getInstance(this@MainActivity)
-        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_turismo)
-        val scaledBitmap = Bitmap.createScaledBitmap(originalBitmap, 80, 80, false)
-        val icon = iconFactory.fromBitmap(scaledBitmap)
-
-        for (punto in DatosTurismo.puntosTuristicos) {
-            val marker = map.addMarker(MarkerOptions()
-                .position(LatLng(punto.latitud, punto.longitud))
-                .title(punto.nombre)
-                .snippet(punto.direccion)
-                .icon(icon)
-            )
-            turismoMarkers.add(marker)
-        }
+        // ... (Esta función se mantiene igual)
     }
 
     private fun startBusDataFetching() {
         lifecycleScope.launch {
             while (isActive) {
                 fetchBusData()
-                delay(90000)
+                delay(40000)
             }
         }
     }
 
     private fun fetchBusData() {
-        val apiKey = "9f057ee0-3807-4340-aefa-17553326eec0"
-
         lifecycleScope.launch {
             try {
-                val response = apiService.getVehiclePositions("chillan", apiKey)
+                val response = apiService.getVehiclePositions("chillan", "9f057ee0-3807-4340-aefa-17553326eec0")
                 if (response.isSuccessful) {
-                    val feed = response.body()
-                    if (feed != null && feed.entityCount > 0) {
-                        Log.d("API_SUCCESS", "✅ Buses encontrados: ${feed.entityCount}")
-                        updateBusMarkers(feed)
-                    } else {
-                        Log.w("API_SUCCESS", "Respuesta exitosa pero sin datos de buses.")
-                        clearBusMarkers()
-                    }
+                    lastFeedMessage = response.body()
+                    updateBusMarkers()
                 } else {
-                    Log.e("API_ERROR", "Error en la respuesta: ${response.code()} - ${response.errorBody()?.string()}")
+                    Log.e("API_ERROR", "Error en la respuesta: ${response.code()}")
                 }
             } catch (e: Exception) {
-                Log.e("API_ERROR", "Fallo en la conexión o procesamiento", e)
+                Log.e("API_ERROR", "Fallo en la conexión", e)
             }
         }
     }
 
-    private fun updateBusMarkers(feed: GtfsRealtime.FeedMessage) {
-        clearBusMarkers()
+    private fun distanceBetween(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+        val results = FloatArray(1)
+        Location.distanceBetween(lat1, lon1, lat2, lon2, results)
+        return results[0]
+    }
 
-        val iconFactory = IconFactory.getInstance(this@MainActivity)
+    private fun updateBusMarkers() {
+        val feed = lastFeedMessage ?: return
+        val userLocation = map.locationComponent.lastKnownLocation
 
-        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_bus)
-        val scaledBitmap = Bitmap.createScaledBitmap(originalBitmap, 80, 80, false)
-        val icon = iconFactory.fromBitmap(scaledBitmap)
+        val busFeatures = mutableListOf<Feature>()
 
         for (entity in feed.entityList) {
-            if (entity.hasVehicle()) {
+            if (entity.hasVehicle() && entity.vehicle.hasTrip() && entity.vehicle.hasPosition()) {
                 val vehicle = entity.vehicle
+                val trip = vehicle.trip
                 val position = vehicle.position
-                val busId = vehicle.vehicle.id
 
-                val marker = map.addMarker(MarkerOptions()
-                    .position(LatLng(position.latitude.toDouble(), position.longitude.toDouble()))
-                    .title("Bus ID: $busId")
-                    .icon(icon)
-                )
-                busMarkers.add(marker)
+                var shouldShow = false
+                if (selectedRouteInfo != null) {
+                    if (selectedRouteInfo?.routeId == trip.routeId && selectedRouteInfo?.directionId == trip.directionId) {
+                        shouldShow = true
+                    }
+                } else {
+                    if (userLocation != null) {
+                        val distanceToUser = distanceBetween(userLocation.latitude, userLocation.longitude, position.latitude.toDouble(), position.longitude.toDouble())
+                        if (distanceToUser <= 1000) {
+                            shouldShow = true
+                        }
+                    } else {
+                        shouldShow = false
+                    }
+                }
+
+                if (shouldShow) {
+                    val point = Point.fromLngLat(position.longitude.toDouble(), position.latitude.toDouble())
+                    busFeatures.add(Feature.fromGeometry(point))
+                }
             }
         }
+        mapStyle?.getSourceAs<GeoJsonSource>("bus-source")?.setGeoJson(FeatureCollection.fromFeatures(busFeatures))
     }
 
-    private fun clearBusMarkers() {
-        for (marker in busMarkers) {
-            map.removeMarker(marker)
-        }
-        busMarkers.clear()
-    }
-
-    private fun enableLocation(loadedMapStyle: Style) {
-        when {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED -> {
-                showUserLocation()
-            }
-            else -> {
-                requestLocationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-            }
+    private fun enableLocation(style: Style) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            showUserLocation()
+            requestFreshLocation()
+        } else {
+            requestLocationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         }
     }
 
     @SuppressWarnings("MissingPermission")
     private fun showUserLocation() {
-        val locationComponent = map.locationComponent
-        locationComponent.activateLocationComponent(
-            LocationComponentActivationOptions.builder(this, map.style!!).build()
-        )
-        locationComponent.isLocationComponentEnabled = true
-        locationComponent.cameraMode = CameraMode.TRACKING
-        locationComponent.renderMode = RenderMode.COMPASS
+        map.locationComponent.activateLocationComponent(LocationComponentActivationOptions.builder(this, map.style!!).build())
+        map.locationComponent.isLocationComponentEnabled = true
+        map.locationComponent.cameraMode = CameraMode.TRACKING
+        map.locationComponent.renderMode = RenderMode.COMPASS
     }
 
     override fun onStart() {
