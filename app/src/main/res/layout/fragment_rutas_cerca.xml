@@ -10,6 +10,6 @@
         android:layout_height="match_parent"
         android:gravity="center"
         android:textSize="20sp"
-        android:text="Aquí se mostrarán las rutas cercanas" />
+        android:text="Aquí se mostrarán las micros cercanas" />
 
 </FrameLayout>

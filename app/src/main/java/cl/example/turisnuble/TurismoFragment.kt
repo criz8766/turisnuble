@@ -1,5 +1,6 @@
 package cl.example.turisnuble
 
+import android.content.Context
 import android.os.Bundle
 import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
@@ -8,29 +9,43 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
+// Interfaz para ordenar al MainActivity que mueva el mapa
+interface MapMover {
+    fun centerMapOnPoint(lat: Double, lon: Double)
+}
+
 class TurismoFragment : Fragment() {
 
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var turismoAdapter: TurismoAdapter
+    private var mapMover: MapMover? = null
+
+    override fun onAttach(context: Context) {
+        super.onAttach(context)
+        if (context is MapMover) {
+            mapMover = context
+        } else {
+            throw RuntimeException("$context must implement MapMover")
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
         val view = inflater.inflate(R.layout.fragment_turismo, container, false)
-
-        recyclerView = view.findViewById(R.id.recycler_view_turismo)
-        turismoAdapter = TurismoAdapter(DatosTurismo.puntosTuristicos)
+        val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_view_turismo)
         recyclerView.layoutManager = LinearLayoutManager(context)
-        recyclerView.adapter = turismoAdapter
 
-        // --- OPTIMIZACIONES CLAVE ---
-        // 1. Mejora el rendimiento si los items no cambian de tamaño
-        recyclerView.setHasFixedSize(true)
-
-        // 2. LA SIGUIENTE LÍNEA HA SIDO ELIMINADA PARA CORREGIR EL SCROLL
-        // recyclerView.isNestedScrollingEnabled = false
+        // Creamos el adaptador y le pasamos la acción a realizar al hacer clic
+        val adapter = TurismoAdapter(DatosTurismo.puntosTuristicos) { puntoSeleccionado ->
+            mapMover?.centerMapOnPoint(puntoSeleccionado.latitud, puntoSeleccionado.longitud)
+        }
+        recyclerView.adapter = adapter
 
         return view
+    }
+
+    override fun onDetach() {
+        super.onDetach()
+        mapMover = null
     }
 }

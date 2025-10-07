@@ -6,38 +6,36 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import com.bumptech.glide.Glide // <-- NUEVO IMPORT
 
-class TurismoAdapter(private val puntosTuristicos: List<PuntoTuristico>) :
-    RecyclerView.Adapter<TurismoAdapter.ViewHolder>() {
+// El constructor ahora incluye la acción de clic
+class TurismoAdapter(
+    private val puntosTuristicos: List<PuntoTuristico>,
+    private val onItemClick: (PuntoTuristico) -> Unit
+) : RecyclerView.Adapter<TurismoAdapter.PuntoTuristicoViewHolder>() {
 
-    class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+    class PuntoTuristicoViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val imagen: ImageView = view.findViewById(R.id.imagen_turismo)
         val nombre: TextView = view.findViewById(R.id.nombre_turismo)
         val direccion: TextView = view.findViewById(R.id.direccion_turismo)
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PuntoTuristicoViewHolder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_punto_turistico, parent, false)
-        return ViewHolder(view)
+        return PuntoTuristicoViewHolder(view)
     }
 
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+    override fun onBindViewHolder(holder: PuntoTuristicoViewHolder, position: Int) {
         val punto = puntosTuristicos[position]
-
-        // --- LÍNEA MODIFICADA ---
-        // En lugar de: holder.imagen.setImageResource(punto.imagenId)
-        // Usamos Glide para cargar la imagen de forma eficiente.
-        Glide.with(holder.itemView.context)
-            .load(punto.imagenId)
-            .into(holder.imagen)
-
+        holder.imagen.setImageResource(punto.imagenId)
         holder.nombre.text = punto.nombre
         holder.direccion.text = punto.direccion
+
+        // Asignamos la acción de clic a toda la fila
+        holder.itemView.setOnClickListener {
+            onItemClick(punto)
+        }
     }
 
-    override fun getItemCount(): Int {
-        return puntosTuristicos.size
-    }
+    override fun getItemCount() = puntosTuristicos.size
 }
