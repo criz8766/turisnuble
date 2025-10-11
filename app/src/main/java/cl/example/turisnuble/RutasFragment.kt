@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -16,13 +17,15 @@ interface RouteDrawer {
     fun clearRoutes()
 }
 
+// --- CLASE DE DATOS ACTUALIZADA ---
 data class RutaInfo(
     val linea: String,
     val recorrido: String,
     val fileName: String,
     val color: String,
     val routeId: String,
-    val directionId: Int
+    val directionId: Int,
+    val iconResId: Int // <-- NUEVO CAMPO
 )
 
 class RutasFragment : Fragment() {
@@ -46,19 +49,43 @@ class RutasFragment : Fragment() {
         val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_view_rutas)
         recyclerView.layoutManager = LinearLayoutManager(context)
 
+        // --- LISTA DE RUTAS ACTUALIZADA con el nuevo ícono ---
         val listaDeRutas = listOf(
-            RutaInfo("Línea 3", "Ida: Agronomía - El Tejar", "linea_3_ida.kml", "#FF0000", "468", 0),
-            RutaInfo("Línea 3", "Vuelta: El Tejar - Agronomía", "linea_3_vuelta.kml", "#CC0000", "468", 1)
+            RutaInfo(
+                linea = "Línea 3",
+                recorrido = "Ida: Agronomía - El Tejar",
+                fileName = "linea_3_ida.kml",
+                color = "#FF0000",
+                routeId = "468",
+                directionId = 0,
+                iconResId = R.drawable.ic_bus_3 // <-- Ícono específico
+            ),
+            RutaInfo(
+                linea = "Línea 3",
+                recorrido = "Vuelta: El Tejar - Agronomía",
+                fileName = "linea_3_vuelta.kml",
+                color = "#CC0000",
+                routeId = "468",
+                directionId = 1,
+                iconResId = R.drawable.ic_bus_3 // <-- Ícono específico
+            ),
+            // Ejemplo con ícono por defecto:
+            // RutaInfo(
+            //     linea = "Línea 4",
+            //     recorrido = "Río Viejo - Lansa",
+            //     fileName = "linea_4_ida.kml",
+            //     color = "#0000FF",
+            //     routeId = "469",
+            //     directionId = 0,
+            //     iconResId = R.drawable.ic_bus // <-- Ícono por defecto
+            // )
         )
 
         val adapter = RutasAdapter(listaDeRutas,
             onItemClick = { rutaSeleccionada ->
-                // --- CORRECCIÓN: Ya no llamamos a clearRoutes() aquí ---
-                // Simplemente pedimos que se dibuje la nueva ruta.
                 routeDrawer?.drawRoute(rutaSeleccionada)
             },
             onClearClick = {
-                // Esto es correcto, llama a la función de reseteo total.
                 routeDrawer?.clearRoutes()
             }
         )
@@ -73,7 +100,7 @@ class RutasFragment : Fragment() {
     }
 }
 
-// El adaptador se mantiene igual que en la versión anterior
+// --- ADAPTADOR ACTUALIZADO ---
 class RutasAdapter(
     private val rutas: List<RutaInfo>,
     private val onItemClick: (RutaInfo) -> Unit,
@@ -90,6 +117,7 @@ class RutasAdapter(
     }
 
     class RutaViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val iconoRuta: ImageView = view.findViewById(R.id.icono_ruta) // <-- Obtenemos el ImageView
         val nombreLinea: TextView = view.findViewById(R.id.nombre_linea)
         val nombreRecorrido: TextView = view.findViewById(R.id.nombre_recorrido)
     }
@@ -117,6 +145,7 @@ class RutasAdapter(
             val ruta = rutas[position - 1]
             holder.nombreLinea.text = ruta.linea
             holder.nombreRecorrido.text = ruta.recorrido
+            holder.iconoRuta.setImageResource(ruta.iconResId) // <-- Asignamos el ícono dinámicamente
             holder.itemView.setOnClickListener {
                 onItemClick(ruta)
             }

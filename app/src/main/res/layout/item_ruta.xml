@@ -9,11 +9,12 @@
     android:background="?android:attr/selectableItemBackground">
 
     <ImageView
+        android:id="@+id/icono_ruta"
         android:layout_width="24dp"
         android:layout_height="24dp"
-        android:src="@drawable/ic_bus"
         android:layout_marginEnd="16dp"
-        android:alpha="0.7"/>
+        android:alpha="0.7"
+        tools:src="@drawable/ic_bus"/>
 
     <LinearLayout
         android:layout_width="0dp"
