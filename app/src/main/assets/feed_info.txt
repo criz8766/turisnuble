@@ -1,0 +1,2 @@
+feed_publisher_name,feed_publisher_url,feed_lang,feed_start_date,feed_end_date,feed_version,feed_contact_email,feed_contact_url,feed_id,feed_publisher_phone,feed_timezone
+División de Transporte Público Regional,http://www.dtpr.gob.cl/,es,20250102,20251231,Chillán20250307,tt@mtt.gob.cl,http://www.dtpr.gob.cl/,cl-chillan,+562 2421 3580,America/Santiago

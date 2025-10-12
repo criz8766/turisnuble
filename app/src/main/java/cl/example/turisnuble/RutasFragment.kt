@@ -13,19 +13,15 @@ import androidx.recyclerview.widget.RecyclerView
 
 // La interfaz no cambia
 interface RouteDrawer {
-    fun drawRoute(routeInfo: RutaInfo)
+    fun drawRoute(route: GtfsRoute, directionId: Int)
     fun clearRoutes()
 }
 
-// --- CLASE DE DATOS ACTUALIZADA ---
-data class RutaInfo(
-    val linea: String,
-    val recorrido: String,
-    val fileName: String,
-    val color: String,
-    val routeId: String,
+// Esta clase de datos no cambia
+data class DisplayRouteInfo(
+    val route: GtfsRoute,
     val directionId: Int,
-    val iconResId: Int // <-- NUEVO CAMPO
+    val directionName: String
 )
 
 class RutasFragment : Fragment() {
@@ -49,41 +45,35 @@ class RutasFragment : Fragment() {
         val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_view_rutas)
         recyclerView.layoutManager = LinearLayoutManager(context)
 
-        // --- LISTA DE RUTAS ACTUALIZADA con el nuevo ícono ---
-        val listaDeRutas = listOf(
-            RutaInfo(
-                linea = "Línea 3",
-                recorrido = "Ida: Agronomía - El Tejar",
-                fileName = "linea_3_ida.kml",
-                color = "#FF0000",
-                routeId = "468",
-                directionId = 0,
-                iconResId = R.drawable.ic_bus_3 // <-- Ícono específico
-            ),
-            RutaInfo(
-                linea = "Línea 3",
-                recorrido = "Vuelta: El Tejar - Agronomía",
-                fileName = "linea_3_vuelta.kml",
-                color = "#CC0000",
-                routeId = "468",
-                directionId = 1,
-                iconResId = R.drawable.ic_bus_3 // <-- Ícono específico
-            ),
-            // Ejemplo con ícono por defecto:
-            // RutaInfo(
-            //     linea = "Línea 4",
-            //     recorrido = "Río Viejo - Lansa",
-            //     fileName = "linea_4_ida.kml",
-            //     color = "#0000FF",
-            //     routeId = "469",
-            //     directionId = 0,
-            //     iconResId = R.drawable.ic_bus // <-- Ícono por defecto
-            // )
+        val allDisplayRoutes = mutableListOf<DisplayRouteInfo>()
+        GtfsDataManager.trips.values.forEach { trip ->
+            GtfsDataManager.routes[trip.routeId]?.let { route ->
+                val directionName = if (trip.directionId == 0) "Ida" else "Vuelta"
+                allDisplayRoutes.add(DisplayRouteInfo(route, trip.directionId, directionName))
+            }
+        }
+
+        // --- LÓGICA DE SEPARACIÓN ---
+        // 1. Separamos las rutas en principales y variantes
+        val mainRoutes = allDisplayRoutes.filter {
+            // Una ruta principal tiene un nombre corto que es solo numérico O es 13A/13B
+            it.route.shortName.all { char -> char.isDigit() } || it.route.shortName.startsWith("13")
+        }.sortedWith(
+            compareBy(
+                { it.route.shortName.filter { c -> c.isDigit() }.toIntOrNull() ?: Int.MAX_VALUE },
+                { it.route.shortName }
+            )
         )
 
-        val adapter = RutasAdapter(listaDeRutas,
+        val variantRoutes = allDisplayRoutes.filter {
+            // Una variante contiene letras pero no es 13A o 13B
+            !it.route.shortName.all { char -> char.isDigit() } && !it.route.shortName.startsWith("13")
+        }.sortedBy { it.route.shortName }
+
+
+        val adapter = RutasAdapter(mainRoutes, variantRoutes,
             onItemClick = { rutaSeleccionada ->
-                routeDrawer?.drawRoute(rutaSeleccionada)
+                routeDrawer?.drawRoute(rutaSeleccionada.route, rutaSeleccionada.directionId)
             },
             onClearClick = {
                 routeDrawer?.clearRoutes()
@@ -100,16 +90,23 @@ class RutasFragment : Fragment() {
     }
 }
 
-// --- ADAPTADOR ACTUALIZADO ---
 class RutasAdapter(
-    private val rutas: List<RutaInfo>,
-    private val onItemClick: (RutaInfo) -> Unit,
+    private val mainRoutes: List<DisplayRouteInfo>,
+    private val variantRoutes: List<DisplayRouteInfo>,
+    private val onItemClick: (DisplayRouteInfo) -> Unit,
     private val onClearClick: () -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
         private const val VIEW_TYPE_HEADER = 0
-        private const val VIEW_TYPE_ITEM = 1
+        private const val VIEW_TYPE_MAIN_ROUTE = 1
+        private const val VIEW_TYPE_SUBHEADER = 2
+        private const val VIEW_TYPE_VARIANT_ROUTE = 3
+    }
+
+    // ViewHolder para el subtítulo "Variantes"
+    class SubheaderViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val title: TextView = view.findViewById(R.id.section_header_text)
     }
 
     class HeaderViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -117,40 +114,63 @@ class RutasAdapter(
     }
 
     class RutaViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val iconoRuta: ImageView = view.findViewById(R.id.icono_ruta) // <-- Obtenemos el ImageView
+        val iconoRuta: ImageView = view.findViewById(R.id.icono_ruta)
         val nombreLinea: TextView = view.findViewById(R.id.nombre_linea)
         val nombreRecorrido: TextView = view.findViewById(R.id.nombre_recorrido)
     }
 
     override fun getItemViewType(position: Int): Int {
-        return if (position == 0) VIEW_TYPE_HEADER else VIEW_TYPE_ITEM
+        return when {
+            position == 0 -> VIEW_TYPE_HEADER
+            position <= mainRoutes.size -> VIEW_TYPE_MAIN_ROUTE
+            position == mainRoutes.size + 1 && variantRoutes.isNotEmpty() -> VIEW_TYPE_SUBHEADER
+            else -> VIEW_TYPE_VARIANT_ROUTE
+        }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-        return if (viewType == VIEW_TYPE_HEADER) {
-            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_clear_selection, parent, false)
-            HeaderViewHolder(view)
-        } else {
-            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_ruta, parent, false)
-            RutaViewHolder(view)
+        return when (viewType) {
+            VIEW_TYPE_HEADER -> HeaderViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_clear_selection, parent, false))
+            VIEW_TYPE_MAIN_ROUTE -> RutaViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_ruta, parent, false))
+            VIEW_TYPE_SUBHEADER -> SubheaderViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_section_header, parent, false))
+            VIEW_TYPE_VARIANT_ROUTE -> RutaViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_ruta, parent, false))
+            else -> throw IllegalArgumentException("Invalid view type")
         }
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        if (holder is HeaderViewHolder) {
-            holder.clearButton.setOnClickListener {
-                onClearClick()
+        when (holder) {
+            is HeaderViewHolder -> {
+                holder.clearButton.setOnClickListener { onClearClick() }
             }
-        } else if (holder is RutaViewHolder) {
-            val ruta = rutas[position - 1]
-            holder.nombreLinea.text = ruta.linea
-            holder.nombreRecorrido.text = ruta.recorrido
-            holder.iconoRuta.setImageResource(ruta.iconResId) // <-- Asignamos el ícono dinámicamente
-            holder.itemView.setOnClickListener {
-                onItemClick(ruta)
+            is SubheaderViewHolder -> {
+                holder.title.text = "Variantes"
+            }
+            is RutaViewHolder -> {
+                val displayRoute = if (getItemViewType(position) == VIEW_TYPE_MAIN_ROUTE) {
+                    mainRoutes[position - 1]
+                } else {
+                    variantRoutes[position - mainRoutes.size - 2]
+                }
+
+                val shortName = displayRoute.route.shortName
+                if (shortName == "13A" || shortName == "13B") {
+                    holder.nombreLinea.text = "Línea 13"
+                } else {
+                    holder.nombreLinea.text = "Línea $shortName"
+                }
+
+                holder.nombreRecorrido.text = "${displayRoute.route.longName} (${displayRoute.directionName})"
+
+                holder.itemView.setOnClickListener {
+                    onItemClick(displayRoute)
+                }
             }
         }
     }
 
-    override fun getItemCount() = rutas.size + 1
+    override fun getItemCount(): Int {
+        val subheaderCount = if (variantRoutes.isNotEmpty()) 1 else 0
+        return 1 + mainRoutes.size + subheaderCount + variantRoutes.size
+    }
 }

@@ -1,3 +1,5 @@
+// MainActivity.kt - Versión COMPLETA y actualizada
+
 package cl.example.turisnuble
 
 import android.Manifest
@@ -11,6 +13,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels // Import necesario
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -46,16 +49,17 @@ import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
 import org.maplibre.android.style.expressions.Expression.*
 import org.maplibre.android.style.layers.LineLayer
-import org.maplibre.android.style.layers.Property // --- IMPORT CORREGIDO ---
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import retrofit2.Retrofit
 import retrofit2.converter.protobuf.ProtoConverterFactory
-import java.io.IOException
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMover {
 
+    private val sharedViewModel: SharedViewModel by viewModels()
+    // ... (el resto de tus variables de clase se mantienen igual)
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var mapView: MapView
     private lateinit var map: MapLibreMap
@@ -64,14 +68,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
     private lateinit var tabLayout: TabLayout
     private lateinit var viewPager: ViewPager2
     private lateinit var pagerAdapter: ViewPagerAdapter
-
-    private var selectedRouteInfo: RutaInfo? = null
+    private var selectedRouteId: String? = null
+    private var selectedDirectionId: Int? = null
     private var lastFeedMessage: GtfsRealtime.FeedMessage? = null
     private var currentRouteSourceId: String? = null
     private var currentRouteLayerId: String? = null
     private var mapStyle: Style? = null
     private val turismoMarkers = mutableListOf<Marker>()
-    private val paraderoMarkers = mutableListOf<Marker>()
 
     private val apiService: GtfsApiService by lazy {
         Retrofit.Builder()
@@ -96,8 +99,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         MapLibre.getInstance(this)
         setContentView(R.layout.activity_main)
 
+        GtfsDataManager.loadData(assets)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
+        // ... (el resto de onCreate se mantiene igual)
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
         val screenHeight = resources.displayMetrics.heightPixels
@@ -105,19 +110,40 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         val peekHeightInPixels = (46 * resources.displayMetrics.density).toInt()
         bottomSheetBehavior.peekHeight = peekHeightInPixels
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
-
         setupTabs()
         setupBottomSheetCallback()
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync(this)
-
         locationFab = findViewById(R.id.location_fab)
         locationFab.setOnClickListener {
             requestFreshLocation()
         }
     }
 
+    // ... (todas las demás funciones se mantienen igual HASTA fetchBusData)
+
+    private fun fetchBusData() {
+        lifecycleScope.launch {
+            try {
+                val response = apiService.getVehiclePositions("chillan", "9f057ee0-3807-4340-aefa-17553326eec0")
+                if (response.isSuccessful) {
+                    val feed = response.body()
+                    if (feed != null) {
+                        lastFeedMessage = feed // Mantenemos la copia local para el mapa
+                        sharedViewModel.setFeedMessage(feed) // Y actualizamos el ViewModel
+                    }
+                    updateBusMarkers()
+                } else {
+                    Log.e("API_ERROR", "Error en la respuesta: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                Log.e("API_ERROR", "Fallo en la conexión", e)
+            }
+        }
+    }
+
+    // ... (el resto de MainActivity.kt se mantiene exactamente igual)
     private fun setupTabs() {
         tabLayout = findViewById(R.id.tab_layout)
         viewPager = findViewById(R.id.view_pager)
@@ -125,7 +151,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         viewPager.adapter = pagerAdapter
         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
             tab.text = when (position) {
-                0 -> "Micros cerca"
+                0 -> "Rutas cerca"
                 1 -> "Turismo"
                 2 -> "Rutas"
                 else -> null
@@ -135,6 +161,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
     }
 
     private fun setupBottomSheetCallback() {
+        bottomSheetBehavior = BottomSheetBehavior.from(findViewById(R.id.bottom_sheet))
         bottomSheetBehavior.addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
             override fun onStateChanged(bottomSheet: View, newState: Int) {}
             override fun onSlide(bottomSheet: View, slideOffset: Float) {}
@@ -157,21 +184,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
 
     private fun setupBusLayer(style: Style) {
         val busBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_bus)
-        style.addImage("bus-icon-default", busBitmap)
-        try {
-            val specialBusBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_bus_3)
-            style.addImage("bus-icon-468", specialBusBitmap)
-        } catch (e: Exception) {
-            style.addImage("bus-icon-468", busBitmap)
-        }
+        style.addImage("bus-icon", busBitmap)
         style.addSource(GeoJsonSource("bus-source"))
         val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
             withProperties(
-                PropertyFactory.iconImage(
-                    match(get("routeId"), literal("bus-icon-default"),
-                        stop(literal("468"), literal("bus-icon-468"))
-                    )
-                ),
+                PropertyFactory.iconImage("bus-icon"),
                 PropertyFactory.iconAllowOverlap(true),
                 PropertyFactory.iconIgnorePlacement(true),
                 PropertyFactory.iconSize(0.05f),
@@ -222,16 +239,50 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
             }
     }
 
-    override fun drawRoute(routeInfo: RutaInfo) {
+    override fun drawRoute(route: GtfsRoute, directionId: Int) {
         clearDrawnElements()
-        this.selectedRouteInfo = routeInfo
-        drawRouteFromKml(mapStyle, routeInfo.fileName, routeInfo.color)
+        selectedRouteId = route.routeId
+        selectedDirectionId = directionId
+
+        val style = mapStyle ?: return
+
+        val tripKey = "${route.routeId}_$directionId"
+        val shapeId = GtfsDataManager.trips[tripKey]?.shapeId
+
+        if (shapeId == null) {
+            Toast.makeText(this, "Trazado no disponible para esta ruta.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val routePoints = GtfsDataManager.shapes[shapeId] ?: return
+
+        val geoJsonString = """{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [${routePoints.joinToString { "[${it.longitude},${it.latitude}]" }}]}}"""
+        val sourceId = "route-source-${route.routeId}-$directionId"
+        style.addSource(GeoJsonSource(sourceId, geoJsonString))
+        currentRouteSourceId = sourceId
+
+        val layerId = "route-layer-${route.routeId}-$directionId"
+        val routeLayer = LineLayer(layerId, sourceId).apply {
+            withProperties(
+                PropertyFactory.lineColor(Color.parseColor(route.color)),
+                PropertyFactory.lineWidth(5f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
+            )
+        }
+        style.addLayer(routeLayer)
+        currentRouteLayerId = layerId
+
+        val bounds = LatLngBounds.Builder().includes(routePoints).build()
+        map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100), 1500)
+
         updateBusMarkers()
     }
 
     override fun clearRoutes() {
         clearDrawnElements()
-        selectedRouteInfo = null
+        selectedRouteId = null
+        selectedDirectionId = null
         updateBusMarkers()
         Toast.makeText(this, "Mostrando buses cercanos", Toast.LENGTH_SHORT).show()
         requestFreshLocation()
@@ -241,71 +292,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         mapStyle?.let { style ->
             currentRouteLayerId?.let { if (style.getLayer(it) != null) style.removeLayer(it) }
             currentRouteSourceId?.let { if (style.getSource(it) != null) style.removeSource(it) }
-            style.getSourceAs<GeoJsonSource>("paradero-source")?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         }
         currentRouteLayerId = null
         currentRouteSourceId = null
-        paraderoMarkers.forEach { map.removeMarker(it) }
-        paraderoMarkers.clear()
     }
 
-    private fun drawRouteFromKml(style: Style?, fileName: String, lineColor: String) {
-        if (style == null) return
-        try {
-            val kmlString = assets.open(fileName).bufferedReader().use { it.readText() }
-
-            val lineCoordinatesString = kmlString.substringAfter("<LineString>").substringAfter("<coordinates>").substringBefore("</coordinates>").trim()
-            if (lineCoordinatesString.isNotEmpty()) {
-                val routePoints = mutableListOf<LatLng>()
-                lineCoordinatesString.split(" ").forEach { pair ->
-                    val lonLat = pair.split(",")
-                    if (lonLat.size >= 2) {
-                        try { routePoints.add(LatLng(lonLat[1].toDouble(), lonLat[0].toDouble())) }
-                        catch (e: NumberFormatException) { /* Ignorar */ }
-                    }
-                }
-                if (routePoints.isNotEmpty()) {
-                    val geoJsonString = """{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [${routePoints.joinToString { "[${it.longitude},${it.latitude}]" }}]}}"""
-                    val sourceId = "route-source-$fileName"
-                    style.addSource(GeoJsonSource(sourceId, geoJsonString))
-                    currentRouteSourceId = sourceId
-                    val layerId = "route-layer-$fileName"
-                    val routeLayer = LineLayer(layerId, sourceId).apply {
-                        withProperties(PropertyFactory.lineColor(Color.parseColor(lineColor)), PropertyFactory.lineWidth(5f), PropertyFactory.lineCap(Property.LINE_CAP_ROUND), PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND))
-                    }
-                    style.addLayer(routeLayer)
-                    currentRouteLayerId = layerId
-                    val bounds = LatLngBounds.Builder().includes(routePoints).build()
-                    map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100), 1500)
-                }
-            }
-
-            val paraderoFeatures = mutableListOf<Feature>()
-            val placemarks = kmlString.split("<Placemark>")
-            for (placemark in placemarks.drop(1)) {
-                if (placemark.contains("<Point>")) {
-                    val name = placemark.substringAfter("<name>").substringBefore("</name>")
-                    val pointCoords = placemark.substringAfter("<coordinates>").substringBefore("</coordinates>").trim()
-                    val lonLat = pointCoords.split(",")
-                    if (lonLat.size >= 2) {
-                        try {
-                            val lon = lonLat[0].toDouble()
-                            val lat = lonLat[1].toDouble()
-                            val point = Point.fromLngLat(lon, lat)
-                            val feature = Feature.fromGeometry(point)
-                            feature.addStringProperty("stop_id", name)
-                            paraderoFeatures.add(feature)
-                        } catch (e: NumberFormatException) { /* Ignorar */ }
-                    }
-                }
-            }
-            style.getSourceAs<GeoJsonSource>("paradero-source")?.setGeoJson(FeatureCollection.fromFeatures(paraderoFeatures))
-        } catch (e: Exception) {
-            Log.e("DrawRouteError", "Error al dibujar la ruta desde $fileName", e)
+    override fun centerMapOnPoint(lat: Double, lon: Double) {
+        if (::map.isInitialized) {
+            map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 16.0), 1500)
         }
     }
 
-    // --- CORRECCIÓN: 'override' ELIMINADO ---
     private fun addTurismoMarkers() {
         val iconFactory = IconFactory.getInstance(this@MainActivity)
         val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_turismo)
@@ -322,36 +319,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         }
     }
 
-    override fun centerMapOnPoint(lat: Double, lon: Double) {
-        if (::map.isInitialized) {
-            map.animateCamera(
-                CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 16.0),
-                1500
-            )
-        }
-    }
-
     private fun startBusDataFetching() {
         lifecycleScope.launch {
             while (isActive) {
                 fetchBusData()
                 delay(40000)
-            }
-        }
-    }
-
-    private fun fetchBusData() {
-        lifecycleScope.launch {
-            try {
-                val response = apiService.getVehiclePositions("chillan", "9f057ee0-3807-4340-aefa-17553326eec0")
-                if (response.isSuccessful) {
-                    lastFeedMessage = response.body()
-                    updateBusMarkers()
-                } else {
-                    Log.e("API_ERROR", "Error en la respuesta: ${response.code()}")
-                }
-            } catch (e: Exception) {
-                Log.e("API_ERROR", "Fallo en la conexión", e)
             }
         }
     }
@@ -372,8 +344,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
                 val trip = vehicle.trip
                 val position = vehicle.position
                 var shouldShow = false
-                if (selectedRouteInfo != null) {
-                    if (selectedRouteInfo?.routeId == trip.routeId && selectedRouteInfo?.directionId == trip.directionId) {
+                if (selectedRouteId != null) {
+                    if (selectedRouteId == trip.routeId && selectedDirectionId == trip.directionId) {
                         shouldShow = true
                     }
                 } else {
@@ -382,8 +354,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
                         if (distanceToUser <= 1000) {
                             shouldShow = true
                         }
-                    } else {
-                        shouldShow = false
                     }
                 }
                 if (shouldShow) {

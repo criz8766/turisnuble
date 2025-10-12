@@ -1,0 +1,15 @@
+route_id,agency_id,route_short_name,route_long_name,route_desc,route_type,route_url,route_color,route_text_color
+954,DTPR,7V1,Camino Las Mariposas  - Ñuble Alto,,3,,ffeb4a,ffffff
+478,DTPR,14Y1,Los Espinos - Camino A San Bernardo Km 3,,3,,44ab4d,ffffff
+467,DTPR,2,Sector Río Viejo - Población Santa Elvira,,3,,1b3b6b,ffffff
+471,DTPR,7,Camino Las Mariposas  km 14 - Camino Parque Lantaño,,3,,ffeb4a,ffffff
+469,DTPR,4,Río Viejo - IANSA - FRUSUR,,3,,2487c9,ffffff
+472,DTPR,8,Av. Alonso de Ercilla 2787 - Del Rosario esquina Angel Parra,,3,,197245,ffffff
+470,DTPR,6,Diagonal Monterrico  - Islas del Sur,,3,,f36421,ffffff
+473,DTPR,10,Camino Las Mariposas - Villa Barcelona,,3,,0047a3,ffffff
+476,DTPR,13B,Universidad del Bío-Bío - Conde del Maule,,3,,269ca3,ffffff
+477,DTPR,14,Camino a San Bernardo km 3 - Matta esquina Zañartu,,3,,44ab4d,ffffff
+474,DTPR,13A,Conde del Maule  - Cerro Leon con El Nevado,,3,,269ca3,ffffff
+466,DTPR,1,Huape - Villa San Sebastián,,3,,d6304f,ffffff
+475,DTPR,13BV,Cerro Leon con El Nevado - Universidad del Bío-Bío,,3,,269ca3,ffffff
+468,DTPR,3,Baquedano - Villa Emanuel,,3,,126b52,ffffff
