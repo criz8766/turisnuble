@@ -3,24 +3,48 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
     android:padding="16dp"
     android:background="?android:attr/selectableItemBackground">
 
     <TextView
-        android:id="@+id/nombre_paradero"
+        android:id="@+id/stop_id_chip"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="16sp"
+        android:background="@drawable/rounded_corner_background"
+        android:gravity="center"
+        android:paddingStart="8dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="4dp"
+        android:textColor="@android:color/white"
         android:textStyle="bold"
-        tools:text="P-129 - Av. O'Higgins con Argentina" />
+        tools:text="P-229" />
 
-    <TextView
-        android:id="@+id/llegadas_buses"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:textSize="14sp"
-        tools:text="Línea 3 llega en 5 min..." />
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="16dp">
+
+        <TextView
+            android:id="@+id/nombre_paradero"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            tools:text="Av. O'Higgins con Argentina" />
+
+        <TextView
+            android:id="@+id/llegadas_buses"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textSize="14sp"
+            tools:text="Línea 3 Ida: 5 min | Línea 7 Vuelta: Ahora" />
+
+    </LinearLayout>
 
 </LinearLayout>

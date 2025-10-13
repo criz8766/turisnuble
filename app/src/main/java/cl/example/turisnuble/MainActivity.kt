@@ -126,10 +126,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
             }
         }
 
-        // --- NUEVO OBSERVADOR ---
-        // Escuchamos la lista de paraderos cercanos que nos envía el fragmento
         sharedViewModel.nearbyStops.observe(this) { nearbyStops ->
-            // Solo mostramos los paraderos cercanos si NO hay una ruta seleccionada
             if (selectedRouteId == null) {
                 showParaderosOnMap(nearbyStops)
             }
@@ -172,6 +169,44 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
             addTurismoMarkers()
             setupBusLayer(style)
             setupParaderoLayer(style)
+
+            map.addOnMapClickListener { point ->
+                val screenPoint = map.projection.toScreenLocation(point)
+                val features = map.queryRenderedFeatures(screenPoint, "paradero-layer")
+                if (features.isNotEmpty()) {
+                    val stopId = features[0].getStringProperty("stop_id")
+                    if (stopId != null) {
+                        handleParaderoClick(stopId)
+                    }
+                }
+                true
+            }
+        }
+    }
+
+    // --- FUNCIÓN MEJORADA PARA MANEJAR EL CLIC EN UN PARADERO ---
+    private fun handleParaderoClick(stopId: String) {
+        // Punto 2: Hacemos zoom al paradero seleccionado
+        GtfsDataManager.stops[stopId]?.let { stop ->
+            centerMapOnPoint(stop.location.latitude, stop.location.longitude)
+        }
+
+        // Punto 1: Lógica de filtrado y navegación
+        val routesForStop = GtfsDataManager.getRoutesForStop(stopId)
+
+        if (routesForStop.isNotEmpty()) {
+            Toast.makeText(this, "Mostrando rutas para el paradero $stopId", Toast.LENGTH_SHORT).show()
+
+            // Si estamos en la pantalla de detalle, volvemos atrás primero
+            if (supportFragmentManager.backStackEntryCount > 0) {
+                supportFragmentManager.popBackStack()
+            }
+
+            sharedViewModel.setRouteFilter(routesForStop)
+            viewPager.setCurrentItem(2, true)
+            bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+        } else {
+            Toast.makeText(this, "No se encontraron rutas para el paradero $stopId", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -207,8 +242,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         style.addLayer(busLayer)
     }
 
-    // --- setupParaderoLayer MODIFICADO ---
-    // Ahora también define las propiedades del texto (la etiqueta)
     private fun setupParaderoLayer(style: Style) {
         try {
             val paraderoBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_paradero)
@@ -231,11 +264,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
                         stop(13f, 1f)
                     )
                 ),
-                // --- NUEVO: Propiedades para mostrar el ID del paradero ---
-                PropertyFactory.textField(get("stop_id")), // Le decimos que el texto es la propiedad "stop_id"
+                PropertyFactory.textField(get("stop_id")),
                 PropertyFactory.textSize(10f),
                 PropertyFactory.textColor(Color.BLACK),
-                PropertyFactory.textOffset(arrayOf(0f, 1.5f)) // Desplaza el texto un poco hacia abajo del ícono
+                PropertyFactory.textOffset(arrayOf(0f, 1.5f))
             )
         }
         style.addLayer(paraderoLayer)
@@ -252,16 +284,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
             }
     }
 
-    // --- NUEVA FUNCIÓN para centralizar el dibujo de paraderos ---
     private fun showParaderosOnMap(paraderos: List<GtfsStop>) {
         val paraderoFeatures = paraderos.map { stop ->
             val point = Point.fromLngLat(stop.location.longitude, stop.location.latitude)
             val feature = Feature.fromGeometry(point)
-            feature.addStringProperty("stop_id", stop.stopId) // Añadimos el ID como propiedad
+            feature.addStringProperty("stop_id", stop.stopId)
             feature
         }
         mapStyle?.getSourceAs<GeoJsonSource>("paradero-source")?.setGeoJson(FeatureCollection.fromFeatures(paraderoFeatures))
-        Log.d("ShowParaderos", "Mostrando ${paraderoFeatures.size} paraderos en el mapa.")
     }
 
     override fun drawRoute(route: GtfsRoute, directionId: Int) {
@@ -278,7 +308,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
             return
         }
 
-        // Dibuja la línea de la ruta
         val routePoints = GtfsDataManager.shapes[shapeId] ?: return
         val geoJsonString = """{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [${routePoints.joinToString { "[${it.longitude},${it.latitude}]" }}]}}"""
         val sourceId = "route-source-${route.routeId}-$directionId"
@@ -297,11 +326,9 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         style.addLayer(routeLayer)
         currentRouteLayerId = layerId
 
-        // Dibuja los paraderos de la ruta
         val paraderosDeRuta = GtfsDataManager.getStopsForRoute(route.routeId, directionId)
         showParaderosOnMap(paraderosDeRuta)
 
-        // Mueve la cámara para abarcar la ruta
         val bounds = LatLngBounds.Builder().includes(routePoints).build()
         map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100), 1500)
         updateBusMarkers()
@@ -314,7 +341,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         updateBusMarkers()
         Toast.makeText(this, "Mostrando buses cercanos", Toast.LENGTH_SHORT).show()
         requestFreshLocation()
-        // --- NUEVO: Al limpiar, volvemos a mostrar los paraderos cercanos ---
         sharedViewModel.nearbyStops.value?.let { showParaderosOnMap(it) }
     }
 
@@ -322,11 +348,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         mapStyle?.let { style ->
             currentRouteLayerId?.let { if (style.getLayer(it) != null) style.removeLayer(it) }
             currentRouteSourceId?.let { if (style.getSource(it) != null) style.removeSource(it) }
-            // Ahora la limpieza de paraderos se maneja con showParaderosOnMap
         }
         currentRouteLayerId = null
         currentRouteSourceId = null
-        showParaderosOnMap(emptyList()) // Limpia los paraderos del mapa
+        showParaderosOnMap(emptyList())
     }
 
     override fun centerMapOnPoint(lat: Double, lon: Double) {
@@ -445,7 +470,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         map.locationComponent.renderMode = RenderMode.COMPASS
     }
 
-    // El resto de los métodos del ciclo de vida (onStart, onResume, etc.) se mantienen igual
+    // Ciclo de vida (onStart, etc.)
     override fun onStart() {
         super.onStart()
         mapView.onStart()

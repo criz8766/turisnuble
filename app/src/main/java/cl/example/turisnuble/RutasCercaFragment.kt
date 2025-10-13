@@ -114,7 +114,9 @@ class ParaderosCercanosAdapter(
     private val onItemClick: (GtfsStop) -> Unit
 ) : RecyclerView.Adapter<ParaderosCercanosAdapter.ParaderoViewHolder>() {
 
+    // 1. ViewHolder actualizado para encontrar el nuevo TextView del "chip"
     class ParaderoViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val stopIdChip: TextView = view.findViewById(R.id.stop_id_chip)
         val nombreParadero: TextView = view.findViewById(R.id.nombre_paradero)
         val llegadasBuses: TextView = view.findViewById(R.id.llegadas_buses)
     }
@@ -126,18 +128,19 @@ class ParaderosCercanosAdapter(
 
     override fun onBindViewHolder(holder: ParaderoViewHolder, position: Int) {
         val item = data[position]
-        holder.nombreParadero.text = "${item.paradero.stopId} - ${item.paradero.name}"
 
+        // 2. Asignamos el texto a cada TextView por separado
+        holder.stopIdChip.text = item.paradero.stopId
+        holder.nombreParadero.text = item.paradero.name
+
+        // La lógica de las llegadas no cambia
         if (item.llegadas.isEmpty()) {
             holder.llegadasBuses.text = "No hay próximas llegadas."
         } else {
-            // --- CAMBIO 3: Lógica para construir el texto final ---
             val llegadasTexto = item.llegadas.take(3).joinToString(separator = "  |  ") { llegada ->
-                // Agrupamos 13A y 13B bajo "13"
                 val lineaText = if (llegada.linea == "13A" || llegada.linea == "13B") "13" else llegada.linea
                 val directionText = if (llegada.directionId == 0) "Ida" else "Vuelta"
                 val tiempoText = if (llegada.tiempoLlegadaMin == 0) "Ahora" else "${llegada.tiempoLlegadaMin} min"
-
                 "Línea $lineaText $directionText: $tiempoText"
             }
             holder.llegadasBuses.text = llegadasTexto

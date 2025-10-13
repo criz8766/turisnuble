@@ -4,8 +4,7 @@ import android.content.res.AssetManager
 import android.util.Log
 import org.maplibre.android.geometry.LatLng
 
-// --- CLASES DE DATOS PARA ORGANIZAR LA INFORMACIÓN GTFS ---
-
+// Clases de datos (sin cambios)
 data class GtfsRoute(
     val routeId: String,
     val shortName: String,
@@ -27,7 +26,6 @@ data class GtfsTrip(
     val shapeId: String
 )
 
-// --- NUEVA CLASE DE DATOS ---
 data class GtfsStopTime(
     val tripId: String,
     val stopId: String,
@@ -38,22 +36,22 @@ object GtfsDataManager {
 
     private var isDataLoaded = false
 
-    // Colecciones para acceder rápidamente a los datos
     val routes = mutableMapOf<String, GtfsRoute>()
     val stops = mutableMapOf<String, GtfsStop>()
     val shapes = mutableMapOf<String, MutableList<LatLng>>()
     val trips = mutableMapOf<String, GtfsTrip>()
-
-    // --- NUEVA COLECCIÓN ---
-    // Un mapa que agrupa todas las paradas por su tripId
     private val stopTimesByTrip = mutableMapOf<String, MutableList<GtfsStopTime>>()
+
+    // --- NUEVA COLECCIÓN PARA BÚSQUEDAS RÁPIDAS ---
+    private val tripsByTripId = mutableMapOf<String, GtfsTrip>()
+
 
     fun loadData(assetManager: AssetManager) {
         if (isDataLoaded) return
         Log.d("GtfsDataManager", "Iniciando carga de datos GTFS...")
 
         try {
-            // 1. Cargar Rutas (routes.txt)
+            // Carga de routes.txt (sin cambios)
             assetManager.open("routes.txt").bufferedReader().useLines { lines ->
                 lines.drop(1).forEach { line ->
                     val tokens = line.split(',')
@@ -70,7 +68,7 @@ object GtfsDataManager {
             }
             Log.d("GtfsDataManager", "Cargadas ${routes.size} rutas.")
 
-            // 2. Cargar Paraderos (stops.txt)
+            // Carga de stops.txt (sin cambios)
             assetManager.open("stops.txt").bufferedReader().useLines { lines ->
                 lines.drop(1).forEach { line ->
                     val tokens = line.split(',')
@@ -86,7 +84,7 @@ object GtfsDataManager {
             }
             Log.d("GtfsDataManager", "Cargados ${stops.size} paraderos.")
 
-            // 3. Cargar Trazados (shapes.txt)
+            // Carga de shapes.txt (sin cambios)
             assetManager.open("shapes.txt").bufferedReader().useLines { lines ->
                 lines.drop(1).forEach { line ->
                     val tokens = line.split(',')
@@ -99,7 +97,7 @@ object GtfsDataManager {
             }
             Log.d("GtfsDataManager", "Cargados ${shapes.size} trazados.")
 
-            // 4. Cargar Viajes (trips.txt)
+            // Carga de trips.txt (con una pequeña adición)
             assetManager.open("trips.txt").bufferedReader().useLines { lines ->
                 lines.drop(1).forEach { line ->
                     val tokens = line.split(',')
@@ -111,17 +109,18 @@ object GtfsDataManager {
                             directionId = tokens[5].toInt(),
                             shapeId = tokens[7]
                         )
-                        // Usamos una clave combinada para encontrar el viaje fácilmente después
                         val tripKey = "${trip.routeId}_${trip.directionId}"
                         if (!trips.containsKey(tripKey)) {
                             trips[tripKey] = trip
                         }
+                        // --- NUEVO: Guardamos el viaje por su ID para búsquedas rápidas ---
+                        tripsByTripId[trip.tripId] = trip
                     }
                 }
             }
             Log.d("GtfsDataManager", "Cargados ${trips.size} viajes únicos.")
 
-            // --- 5. NUEVA LÓGICA: Cargar Secuencia de Paraderos (stop_times.txt) ---
+            // Carga de stop_times.txt (sin cambios)
             assetManager.open("stop_times.txt").bufferedReader().useLines { lines ->
                 lines.drop(1).forEach { line ->
                     val tokens = line.split(',')
@@ -137,7 +136,6 @@ object GtfsDataManager {
             }
             Log.d("GtfsDataManager", "Cargadas ${stopTimesByTrip.size} secuencias de paraderos.")
 
-
             isDataLoaded = true
             Log.d("GtfsDataManager", "Carga de datos GTFS completada.")
         } catch (e: Exception) {
@@ -146,24 +144,40 @@ object GtfsDataManager {
         }
     }
 
-    // --- NUEVA FUNCIÓN PÚBLICA ---
-    /**
-     * Devuelve la lista ordenada de paraderos para una ruta y dirección específicas.
-     */
+    // Función para obtener la secuencia de paraderos (sin cambios)
     fun getStopsForRoute(routeId: String, directionId: Int): List<GtfsStop> {
-        // 1. Encontrar el tripId que corresponde a esta ruta y dirección
         val tripKey = "${routeId}_${directionId}"
         val representativeTripId = trips[tripKey]?.tripId ?: return emptyList()
-
-        // 2. Usar el tripId para obtener la secuencia de paradas
         val stopTimes = stopTimesByTrip[representativeTripId] ?: return emptyList()
-
-        // 3. Ordenar las paradas por su secuencia
         val sortedStopTimes = stopTimes.sortedBy { it.stopSequence }
+        return sortedStopTimes.mapNotNull { stopTime -> stops[stopTime.stopId] }
+    }
 
-        // 4. Convertir los IDs de parada en los objetos GtfsStop completos y devolver la lista
-        return sortedStopTimes.mapNotNull { stopTime ->
-            stops[stopTime.stopId]
+    // --- NUEVA FUNCIÓN ---
+    /**
+     * Devuelve una lista de todas las rutas (y sus direcciones) que pasan por un paradero específico.
+     */
+    fun getRoutesForStop(stopId: String): List<DisplayRouteInfo> {
+        val uniqueRoutes = mutableSetOf<Pair<String, Int>>()
+
+        // 1. Buscamos en todas las secuencias de paradas
+        stopTimesByTrip.values.flatten().forEach { stopTime ->
+            // 2. Si una secuencia contiene nuestro paradero...
+            if (stopTime.stopId == stopId) {
+                // 3. ...obtenemos la información del viaje correspondiente
+                tripsByTripId[stopTime.tripId]?.let { trip ->
+                    // 4. Y añadimos la combinación de ID de ruta y dirección a nuestra lista de resultados únicos
+                    uniqueRoutes.add(Pair(trip.routeId, trip.directionId))
+                }
+            }
+        }
+
+        // 5. Convertimos los resultados en objetos DisplayRouteInfo para pasarlos al fragmento
+        return uniqueRoutes.mapNotNull { (routeId, directionId) ->
+            routes[routeId]?.let { route ->
+                val directionName = if (directionId == 0) "Ida" else "Vuelta"
+                DisplayRouteInfo(route, directionId, directionName)
+            }
         }
     }
 }

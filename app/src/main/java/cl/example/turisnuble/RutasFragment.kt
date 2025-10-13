@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
@@ -27,6 +28,9 @@ data class DisplayRouteInfo(
 class RutasFragment : Fragment() {
 
     private var routeDrawer: RouteDrawer? = null
+    private val sharedViewModel: SharedViewModel by activityViewModels()
+    private lateinit var adapter: RutasAdapter
+    private var allDisplayRoutes: List<DisplayRouteInfo> = emptyList()
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -45,20 +49,59 @@ class RutasFragment : Fragment() {
         val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_view_rutas)
         recyclerView.layoutManager = LinearLayoutManager(context)
 
-        val allDisplayRoutes = mutableListOf<DisplayRouteInfo>()
+        prepareAllRoutes()
+
+        adapter = RutasAdapter(emptyList(), emptyList(),
+            onItemClick = { displayRoute ->
+                routeDrawer?.drawRoute(displayRoute.route, displayRoute.directionId)
+                (activity as? MainActivity)?.showRouteDetail(displayRoute.route.routeId, displayRoute.directionId)
+            },
+            onClearClick = {
+                sharedViewModel.clearRouteFilter()
+                routeDrawer?.clearRoutes()
+            }
+        )
+        recyclerView.adapter = adapter
+
+        sharedViewModel.routeFilter.observe(viewLifecycleOwner) { filter ->
+            if (filter == null) {
+                updateAdapterWithAllRoutes()
+            } else {
+                updateAdapterWithFilteredRoutes(filter)
+            }
+        }
+
+        return view
+    }
+
+    // --- CAMBIO CLAVE: Añadimos onResume ---
+    override fun onResume() {
+        super.onResume()
+        // Forzamos la actualización cada vez que la pestaña se vuelve visible.
+        // Esto soluciona el problema de la lista vacía al inicio.
+        if (sharedViewModel.routeFilter.value == null) {
+            updateAdapterWithAllRoutes()
+        } else {
+            sharedViewModel.routeFilter.value?.let { updateAdapterWithFilteredRoutes(it) }
+        }
+    }
+
+    private fun prepareAllRoutes() {
+        val routes = mutableListOf<DisplayRouteInfo>()
         GtfsDataManager.trips.values
             .distinctBy { it.routeId to it.directionId }
             .forEach { trip ->
                 GtfsDataManager.routes[trip.routeId]?.let { route ->
                     val directionName = if (trip.directionId == 0) "Ida" else "Vuelta"
-                    allDisplayRoutes.add(DisplayRouteInfo(route, trip.directionId, directionName))
+                    routes.add(DisplayRouteInfo(route, trip.directionId, directionName))
                 }
             }
+        allDisplayRoutes = routes
+    }
 
-        // --- LÓGICA DE FILTRADO CORREGIDA ---
+    private fun updateAdapterWithAllRoutes() {
         val mainRoutes = allDisplayRoutes.filter {
             val shortName = it.route.shortName
-            // Una ruta principal es numérica O es específicamente "13A" o "13B"
             shortName.all { char -> char.isDigit() } || shortName == "13A" || shortName == "13B"
         }.sortedWith(
             compareBy(
@@ -66,21 +109,20 @@ class RutasFragment : Fragment() {
                 { it.route.shortName }
             )
         )
-
         val variantRoutes = allDisplayRoutes.filterNot { mainRoutes.contains(it) }
             .sortedBy { it.route.shortName }
 
-        val adapter = RutasAdapter(mainRoutes, variantRoutes,
-            onItemClick = { displayRoute ->
-                routeDrawer?.drawRoute(displayRoute.route, displayRoute.directionId)
-                (activity as? MainActivity)?.showRouteDetail(displayRoute.route.routeId, displayRoute.directionId)
-            },
-            onClearClick = {
-                routeDrawer?.clearRoutes()
-            }
+        adapter.updateData(mainRoutes, variantRoutes)
+    }
+
+    private fun updateAdapterWithFilteredRoutes(filteredRoutes: List<DisplayRouteInfo>) {
+        val sortedFilter = filteredRoutes.sortedWith(
+            compareBy(
+                { it.route.shortName.filter { c -> c.isDigit() }.toIntOrNull() ?: Int.MAX_VALUE },
+                { it.route.shortName }
+            )
         )
-        recyclerView.adapter = adapter
-        return view
+        adapter.updateData(sortedFilter, emptyList())
     }
 
     override fun onDetach() {
@@ -91,8 +133,8 @@ class RutasFragment : Fragment() {
 
 // El adaptador se mantiene exactamente igual, no necesita cambios.
 class RutasAdapter(
-    private val mainRoutes: List<DisplayRouteInfo>,
-    private val variantRoutes: List<DisplayRouteInfo>,
+    private var mainRoutes: List<DisplayRouteInfo>,
+    private var variantRoutes: List<DisplayRouteInfo>,
     private val onItemClick: (DisplayRouteInfo) -> Unit,
     private val onClearClick: () -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
@@ -102,6 +144,12 @@ class RutasAdapter(
         private const val VIEW_TYPE_MAIN_ROUTE = 1
         private const val VIEW_TYPE_SUBHEADER = 2
         private const val VIEW_TYPE_VARIANT_ROUTE = 3
+    }
+
+    fun updateData(newMainRoutes: List<DisplayRouteInfo>, newVariantRoutes: List<DisplayRouteInfo>) {
+        this.mainRoutes = newMainRoutes
+        this.variantRoutes = newVariantRoutes
+        notifyDataSetChanged()
     }
 
     class HeaderViewHolder(view: View) : RecyclerView.ViewHolder(view) {
