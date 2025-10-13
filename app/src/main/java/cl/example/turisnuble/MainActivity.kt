@@ -1,5 +1,3 @@
-// MainActivity.kt - Versión COMPLETA y actualizada
-
 package cl.example.turisnuble
 
 import android.Manifest
@@ -13,7 +11,7 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels // Import necesario
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -55,11 +53,10 @@ import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import retrofit2.Retrofit
 import retrofit2.converter.protobuf.ProtoConverterFactory
+import java.io.IOException
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMover {
 
-    private val sharedViewModel: SharedViewModel by viewModels()
-    // ... (el resto de tus variables de clase se mantienen igual)
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var mapView: MapView
     private lateinit var map: MapLibreMap
@@ -68,6 +65,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
     private lateinit var tabLayout: TabLayout
     private lateinit var viewPager: ViewPager2
     private lateinit var pagerAdapter: ViewPagerAdapter
+    private val sharedViewModel: SharedViewModel by viewModels()
     private var selectedRouteId: String? = null
     private var selectedDirectionId: Int? = null
     private var lastFeedMessage: GtfsRealtime.FeedMessage? = null
@@ -102,7 +100,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         GtfsDataManager.loadData(assets)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        // ... (el resto de onCreate se mantiene igual)
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
         val screenHeight = resources.displayMetrics.heightPixels
@@ -110,45 +107,41 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         val peekHeightInPixels = (46 * resources.displayMetrics.density).toInt()
         bottomSheetBehavior.peekHeight = peekHeightInPixels
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+
         setupTabs()
         setupBottomSheetCallback()
+
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync(this)
+
         locationFab = findViewById(R.id.location_fab)
         locationFab.setOnClickListener {
             requestFreshLocation()
         }
-    }
 
-    // ... (todas las demás funciones se mantienen igual HASTA fetchBusData)
+        supportFragmentManager.addOnBackStackChangedListener {
+            if (supportFragmentManager.backStackEntryCount == 0) {
+                findViewById<View>(R.id.bottom_sheet_content).visibility = View.VISIBLE
+            }
+        }
 
-    private fun fetchBusData() {
-        lifecycleScope.launch {
-            try {
-                val response = apiService.getVehiclePositions("chillan", "9f057ee0-3807-4340-aefa-17553326eec0")
-                if (response.isSuccessful) {
-                    val feed = response.body()
-                    if (feed != null) {
-                        lastFeedMessage = feed // Mantenemos la copia local para el mapa
-                        sharedViewModel.setFeedMessage(feed) // Y actualizamos el ViewModel
-                    }
-                    updateBusMarkers()
-                } else {
-                    Log.e("API_ERROR", "Error en la respuesta: ${response.code()}")
-                }
-            } catch (e: Exception) {
-                Log.e("API_ERROR", "Fallo en la conexión", e)
+        // --- NUEVO OBSERVADOR ---
+        // Escuchamos la lista de paraderos cercanos que nos envía el fragmento
+        sharedViewModel.nearbyStops.observe(this) { nearbyStops ->
+            // Solo mostramos los paraderos cercanos si NO hay una ruta seleccionada
+            if (selectedRouteId == null) {
+                showParaderosOnMap(nearbyStops)
             }
         }
     }
 
-    // ... (el resto de MainActivity.kt se mantiene exactamente igual)
     private fun setupTabs() {
         tabLayout = findViewById(R.id.tab_layout)
         viewPager = findViewById(R.id.view_pager)
         pagerAdapter = ViewPagerAdapter(this)
         viewPager.adapter = pagerAdapter
+
         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
             tab.text = when (position) {
                 0 -> "Rutas cerca"
@@ -182,10 +175,20 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         }
     }
 
+    fun showRouteDetail(routeId: String, directionId: Int) {
+        val fragment = DetalleRutaFragment.newInstance(routeId, directionId)
+        findViewById<View>(R.id.bottom_sheet_content).visibility = View.GONE
+        supportFragmentManager.beginTransaction()
+            .add(R.id.bottom_sheet, fragment)
+            .addToBackStack(null)
+            .commit()
+    }
+
     private fun setupBusLayer(style: Style) {
         val busBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_bus)
         style.addImage("bus-icon", busBitmap)
         style.addSource(GeoJsonSource("bus-source"))
+
         val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
             withProperties(
                 PropertyFactory.iconImage("bus-icon"),
@@ -193,7 +196,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
                 PropertyFactory.iconIgnorePlacement(true),
                 PropertyFactory.iconSize(0.05f),
                 PropertyFactory.iconOpacity(
-                    interpolate(linear(), zoom(),
+                    interpolate(
+                        linear(), zoom(),
                         stop(11.99f, 0f),
                         stop(12f, 1f)
                     )
@@ -203,6 +207,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         style.addLayer(busLayer)
     }
 
+    // --- setupParaderoLayer MODIFICADO ---
+    // Ahora también define las propiedades del texto (la etiqueta)
     private fun setupParaderoLayer(style: Style) {
         try {
             val paraderoBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_paradero)
@@ -211,6 +217,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
             Log.w("SetupParadero", "No se encontró 'ic_paradero.png'.")
         }
         style.addSource(GeoJsonSource("paradero-source"))
+
         val paraderoLayer = SymbolLayer("paradero-layer", "paradero-source").apply {
             withProperties(
                 PropertyFactory.iconImage("paradero-icon"),
@@ -218,11 +225,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
                 PropertyFactory.iconIgnorePlacement(true),
                 PropertyFactory.iconSize(0.05f),
                 PropertyFactory.iconOpacity(
-                    interpolate(linear(), zoom(),
+                    interpolate(
+                        linear(), zoom(),
                         stop(12.99f, 0f),
                         stop(13f, 1f)
                     )
-                )
+                ),
+                // --- NUEVO: Propiedades para mostrar el ID del paradero ---
+                PropertyFactory.textField(get("stop_id")), // Le decimos que el texto es la propiedad "stop_id"
+                PropertyFactory.textSize(10f),
+                PropertyFactory.textColor(Color.BLACK),
+                PropertyFactory.textOffset(arrayOf(0f, 1.5f)) // Desplaza el texto un poco hacia abajo del ícono
             )
         }
         style.addLayer(paraderoLayer)
@@ -239,13 +252,24 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
             }
     }
 
+    // --- NUEVA FUNCIÓN para centralizar el dibujo de paraderos ---
+    private fun showParaderosOnMap(paraderos: List<GtfsStop>) {
+        val paraderoFeatures = paraderos.map { stop ->
+            val point = Point.fromLngLat(stop.location.longitude, stop.location.latitude)
+            val feature = Feature.fromGeometry(point)
+            feature.addStringProperty("stop_id", stop.stopId) // Añadimos el ID como propiedad
+            feature
+        }
+        mapStyle?.getSourceAs<GeoJsonSource>("paradero-source")?.setGeoJson(FeatureCollection.fromFeatures(paraderoFeatures))
+        Log.d("ShowParaderos", "Mostrando ${paraderoFeatures.size} paraderos en el mapa.")
+    }
+
     override fun drawRoute(route: GtfsRoute, directionId: Int) {
         clearDrawnElements()
         selectedRouteId = route.routeId
         selectedDirectionId = directionId
 
         val style = mapStyle ?: return
-
         val tripKey = "${route.routeId}_$directionId"
         val shapeId = GtfsDataManager.trips[tripKey]?.shapeId
 
@@ -254,8 +278,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
             return
         }
 
+        // Dibuja la línea de la ruta
         val routePoints = GtfsDataManager.shapes[shapeId] ?: return
-
         val geoJsonString = """{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [${routePoints.joinToString { "[${it.longitude},${it.latitude}]" }}]}}"""
         val sourceId = "route-source-${route.routeId}-$directionId"
         style.addSource(GeoJsonSource(sourceId, geoJsonString))
@@ -273,9 +297,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         style.addLayer(routeLayer)
         currentRouteLayerId = layerId
 
+        // Dibuja los paraderos de la ruta
+        val paraderosDeRuta = GtfsDataManager.getStopsForRoute(route.routeId, directionId)
+        showParaderosOnMap(paraderosDeRuta)
+
+        // Mueve la cámara para abarcar la ruta
         val bounds = LatLngBounds.Builder().includes(routePoints).build()
         map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100), 1500)
-
         updateBusMarkers()
     }
 
@@ -286,15 +314,19 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         updateBusMarkers()
         Toast.makeText(this, "Mostrando buses cercanos", Toast.LENGTH_SHORT).show()
         requestFreshLocation()
+        // --- NUEVO: Al limpiar, volvemos a mostrar los paraderos cercanos ---
+        sharedViewModel.nearbyStops.value?.let { showParaderosOnMap(it) }
     }
 
     private fun clearDrawnElements() {
         mapStyle?.let { style ->
             currentRouteLayerId?.let { if (style.getLayer(it) != null) style.removeLayer(it) }
             currentRouteSourceId?.let { if (style.getSource(it) != null) style.removeSource(it) }
+            // Ahora la limpieza de paraderos se maneja con showParaderosOnMap
         }
         currentRouteLayerId = null
         currentRouteSourceId = null
+        showParaderosOnMap(emptyList()) // Limpia los paraderos del mapa
     }
 
     override fun centerMapOnPoint(lat: Double, lon: Double) {
@@ -308,6 +340,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_turismo)
         val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(originalBitmap, 80, 80, false)
         val icon = iconFactory.fromBitmap(scaledBitmap)
+
         DatosTurismo.puntosTuristicos.forEach { punto ->
             turismoMarkers.add(map.addMarker(
                 MarkerOptions()
@@ -328,6 +361,26 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         }
     }
 
+    private fun fetchBusData() {
+        lifecycleScope.launch {
+            try {
+                val response = apiService.getVehiclePositions("chillan", "9f057ee0-3807-4340-aefa-17553326eec0")
+                if (response.isSuccessful) {
+                    val feed = response.body()
+                    if (feed != null) {
+                        lastFeedMessage = feed
+                        sharedViewModel.setFeedMessage(feed)
+                    }
+                    updateBusMarkers()
+                } else {
+                    Log.e("API_ERROR", "Error en la respuesta: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                Log.e("API_ERROR", "Fallo en la conexión", e)
+            }
+        }
+    }
+
     private fun distanceBetween(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
         val results = FloatArray(1)
         Location.distanceBetween(lat1, lon1, lat2, lon2, results)
@@ -338,24 +391,32 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         val feed = lastFeedMessage ?: return
         val userLocation = map.locationComponent.lastKnownLocation
         val busFeatures = mutableListOf<Feature>()
+
         for (entity in feed.entityList) {
             if (entity.hasVehicle() && entity.vehicle.hasTrip() && entity.vehicle.hasPosition()) {
                 val vehicle = entity.vehicle
                 val trip = vehicle.trip
                 val position = vehicle.position
                 var shouldShow = false
+
                 if (selectedRouteId != null) {
                     if (selectedRouteId == trip.routeId && selectedDirectionId == trip.directionId) {
                         shouldShow = true
                     }
                 } else {
                     if (userLocation != null) {
-                        val distanceToUser = distanceBetween(userLocation.latitude, userLocation.longitude, position.latitude.toDouble(), position.longitude.toDouble())
+                        val distanceToUser = distanceBetween(
+                            userLocation.latitude, userLocation.longitude,
+                            position.latitude.toDouble(), position.longitude.toDouble()
+                        )
                         if (distanceToUser <= 1000) {
                             shouldShow = true
                         }
+                    } else {
+                        shouldShow = false
                     }
                 }
+
                 if (shouldShow) {
                     val point = Point.fromLngLat(position.longitude.toDouble(), position.latitude.toDouble())
                     val feature = Feature.fromGeometry(point)
@@ -384,36 +445,31 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         map.locationComponent.renderMode = RenderMode.COMPASS
     }
 
+    // El resto de los métodos del ciclo de vida (onStart, onResume, etc.) se mantienen igual
     override fun onStart() {
         super.onStart()
         mapView.onStart()
     }
-
     override fun onResume() {
         super.onResume()
         mapView.onResume()
     }
-
     override fun onPause() {
         super.onPause()
         mapView.onPause()
     }
-
     override fun onStop() {
         super.onStop()
         mapView.onStop()
     }
-
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         mapView.onSaveInstanceState(outState)
     }
-
     override fun onLowMemory() {
         super.onLowMemory()
         mapView.onLowMemory()
     }
-
     override fun onDestroy() {
         super.onDestroy()
         mapView.onDestroy()

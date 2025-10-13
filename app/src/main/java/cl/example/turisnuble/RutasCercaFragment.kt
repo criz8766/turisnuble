@@ -1,5 +1,6 @@
 package cl.example.turisnuble
 
+import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -14,8 +15,8 @@ import com.google.transit.realtime.GtfsRealtime
 import org.maplibre.android.geometry.LatLng
 import java.util.concurrent.TimeUnit
 
-// Nuevas clases de datos para la lista
-data class LlegadaInfo(val linea: String, val tiempoLlegadaMin: Int)
+// --- CAMBIO 1: Añadimos 'directionId' a la información de la llegada ---
+data class LlegadaInfo(val linea: String, val directionId: Int, val tiempoLlegadaMin: Int)
 data class ParaderoConLlegadas(val paradero: GtfsStop, val llegadas: List<LlegadaInfo>)
 
 class RutasCercaFragment : Fragment() {
@@ -23,6 +24,16 @@ class RutasCercaFragment : Fragment() {
     private val sharedViewModel: SharedViewModel by activityViewModels()
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: ParaderosCercanosAdapter
+    private var mapMover: MapMover? = null
+
+    override fun onAttach(context: Context) {
+        super.onAttach(context)
+        if (context is MapMover) {
+            mapMover = context
+        } else {
+            throw RuntimeException("$context must implement MapMover")
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -31,19 +42,18 @@ class RutasCercaFragment : Fragment() {
         val view = inflater.inflate(R.layout.fragment_rutas_cerca, container, false)
         recyclerView = view.findViewById(R.id.recycler_view_rutas_cerca)
         recyclerView.layoutManager = LinearLayoutManager(context)
-        adapter = ParaderosCercanosAdapter(emptyList())
+
+        adapter = ParaderosCercanosAdapter(emptyList()) { paraderoSeleccionado ->
+            mapMover?.centerMapOnPoint(paraderoSeleccionado.location.latitude, paraderoSeleccionado.location.longitude)
+        }
         recyclerView.adapter = adapter
 
-        // Observamos los datos de la API que vienen del ViewModel
         sharedViewModel.feedMessage.observe(viewLifecycleOwner) { feed ->
-            // Cada vez que llegan nuevos datos de la API, recalculamos todo
             findNearbyStopsAndArrivals(feed)
         }
-
         return view
     }
 
-    // Al reanudar el fragmento, volvemos a calcular por si la ubicación cambió
     override fun onResume() {
         super.onResume()
         sharedViewModel.feedMessage.value?.let { findNearbyStopsAndArrivals(it) }
@@ -54,31 +64,33 @@ class RutasCercaFragment : Fragment() {
         try {
             fusedLocationClient.lastLocation.addOnSuccessListener { location ->
                 if (location == null) return@addOnSuccessListener
-
                 val userLatLng = LatLng(location.latitude, location.longitude)
 
                 val paraderosCercanos = GtfsDataManager.stops.values
                     .filter { userLatLng.distanceTo(it.location) <= 500 }
                     .sortedBy { userLatLng.distanceTo(it.location) }
 
+                sharedViewModel.setNearbyStops(paraderosCercanos)
+
                 val paraderosConLlegadas = paraderosCercanos.map { paradero ->
                     val llegadas = mutableListOf<LlegadaInfo>()
-
-                    // Buscamos en todo el feed de la API las llegadas a este paradero
                     for (entity in feed.entityList) {
                         if (entity.hasTripUpdate()) {
                             for (stopUpdate in entity.tripUpdate.stopTimeUpdateList) {
                                 if (stopUpdate.stopId == paradero.stopId) {
-                                    val routeId = entity.tripUpdate.trip.routeId
-                                    val linea = GtfsDataManager.routes[routeId]?.shortName ?: "Desconocida"
-
+                                    val trip = entity.tripUpdate.trip
+                                    val routeId = trip.routeId
+                                    // --- CAMBIO 2: Obtenemos el directionId del viaje ---
+                                    val directionId = trip.directionId
+                                    val linea = GtfsDataManager.routes[routeId]?.shortName ?: "Desc."
                                     val tiempoLlegada = stopUpdate.arrival.time
                                     val tiempoActual = System.currentTimeMillis() / 1000
                                     val diffSegundos = tiempoLlegada - tiempoActual
                                     val diffMinutos = TimeUnit.SECONDS.toMinutes(diffSegundos).toInt()
 
                                     if (diffMinutos >= 0) {
-                                        llegadas.add(LlegadaInfo(linea, diffMinutos))
+                                        // Guardamos también la dirección
+                                        llegadas.add(LlegadaInfo(linea, directionId, diffMinutos))
                                     }
                                 }
                             }
@@ -86,17 +98,21 @@ class RutasCercaFragment : Fragment() {
                     }
                     ParaderoConLlegadas(paradero, llegadas.sortedBy { it.tiempoLlegadaMin })
                 }
-
-                // Actualizamos el adaptador con la nueva lista
                 adapter.updateData(paraderosConLlegadas)
             }
         } catch (e: SecurityException) { /* Sin permisos */ }
     }
+
+    override fun onDetach() {
+        super.onDetach()
+        mapMover = null
+    }
 }
 
-// Adaptador actualizado para manejar la nueva estructura de datos
-class ParaderosCercanosAdapter(private var data: List<ParaderoConLlegadas>) :
-    RecyclerView.Adapter<ParaderosCercanosAdapter.ParaderoViewHolder>() {
+class ParaderosCercanosAdapter(
+    private var data: List<ParaderoConLlegadas>,
+    private val onItemClick: (GtfsStop) -> Unit
+) : RecyclerView.Adapter<ParaderosCercanosAdapter.ParaderoViewHolder>() {
 
     class ParaderoViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val nombreParadero: TextView = view.findViewById(R.id.nombre_paradero)
@@ -115,11 +131,20 @@ class ParaderosCercanosAdapter(private var data: List<ParaderoConLlegadas>) :
         if (item.llegadas.isEmpty()) {
             holder.llegadasBuses.text = "No hay próximas llegadas."
         } else {
-            // Formateamos el texto para mostrar las próximas llegadas
-            val llegadasTexto = item.llegadas.take(3).joinToString(separator = " | ") {
-                "Línea ${it.linea}: ${if (it.tiempoLlegadaMin == 0) "Ahora" else "${it.tiempoLlegadaMin} min"}"
+            // --- CAMBIO 3: Lógica para construir el texto final ---
+            val llegadasTexto = item.llegadas.take(3).joinToString(separator = "  |  ") { llegada ->
+                // Agrupamos 13A y 13B bajo "13"
+                val lineaText = if (llegada.linea == "13A" || llegada.linea == "13B") "13" else llegada.linea
+                val directionText = if (llegada.directionId == 0) "Ida" else "Vuelta"
+                val tiempoText = if (llegada.tiempoLlegadaMin == 0) "Ahora" else "${llegada.tiempoLlegadaMin} min"
+
+                "Línea $lineaText $directionText: $tiempoText"
             }
             holder.llegadasBuses.text = llegadasTexto
+        }
+
+        holder.itemView.setOnClickListener {
+            onItemClick(item.paradero)
         }
     }
 

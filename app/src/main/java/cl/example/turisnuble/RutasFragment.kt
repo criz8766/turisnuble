@@ -17,7 +17,7 @@ interface RouteDrawer {
     fun clearRoutes()
 }
 
-// Esta clase de datos no cambia
+// La clase de datos no cambia
 data class DisplayRouteInfo(
     val route: GtfsRoute,
     val directionId: Int,
@@ -46,18 +46,20 @@ class RutasFragment : Fragment() {
         recyclerView.layoutManager = LinearLayoutManager(context)
 
         val allDisplayRoutes = mutableListOf<DisplayRouteInfo>()
-        GtfsDataManager.trips.values.forEach { trip ->
-            GtfsDataManager.routes[trip.routeId]?.let { route ->
-                val directionName = if (trip.directionId == 0) "Ida" else "Vuelta"
-                allDisplayRoutes.add(DisplayRouteInfo(route, trip.directionId, directionName))
+        GtfsDataManager.trips.values
+            .distinctBy { it.routeId to it.directionId }
+            .forEach { trip ->
+                GtfsDataManager.routes[trip.routeId]?.let { route ->
+                    val directionName = if (trip.directionId == 0) "Ida" else "Vuelta"
+                    allDisplayRoutes.add(DisplayRouteInfo(route, trip.directionId, directionName))
+                }
             }
-        }
 
-        // --- LÓGICA DE SEPARACIÓN ---
-        // 1. Separamos las rutas en principales y variantes
+        // --- LÓGICA DE FILTRADO CORREGIDA ---
         val mainRoutes = allDisplayRoutes.filter {
-            // Una ruta principal tiene un nombre corto que es solo numérico O es 13A/13B
-            it.route.shortName.all { char -> char.isDigit() } || it.route.shortName.startsWith("13")
+            val shortName = it.route.shortName
+            // Una ruta principal es numérica O es específicamente "13A" o "13B"
+            shortName.all { char -> char.isDigit() } || shortName == "13A" || shortName == "13B"
         }.sortedWith(
             compareBy(
                 { it.route.shortName.filter { c -> c.isDigit() }.toIntOrNull() ?: Int.MAX_VALUE },
@@ -65,22 +67,19 @@ class RutasFragment : Fragment() {
             )
         )
 
-        val variantRoutes = allDisplayRoutes.filter {
-            // Una variante contiene letras pero no es 13A o 13B
-            !it.route.shortName.all { char -> char.isDigit() } && !it.route.shortName.startsWith("13")
-        }.sortedBy { it.route.shortName }
-
+        val variantRoutes = allDisplayRoutes.filterNot { mainRoutes.contains(it) }
+            .sortedBy { it.route.shortName }
 
         val adapter = RutasAdapter(mainRoutes, variantRoutes,
-            onItemClick = { rutaSeleccionada ->
-                routeDrawer?.drawRoute(rutaSeleccionada.route, rutaSeleccionada.directionId)
+            onItemClick = { displayRoute ->
+                routeDrawer?.drawRoute(displayRoute.route, displayRoute.directionId)
+                (activity as? MainActivity)?.showRouteDetail(displayRoute.route.routeId, displayRoute.directionId)
             },
             onClearClick = {
                 routeDrawer?.clearRoutes()
             }
         )
         recyclerView.adapter = adapter
-
         return view
     }
 
@@ -90,6 +89,7 @@ class RutasFragment : Fragment() {
     }
 }
 
+// El adaptador se mantiene exactamente igual, no necesita cambios.
 class RutasAdapter(
     private val mainRoutes: List<DisplayRouteInfo>,
     private val variantRoutes: List<DisplayRouteInfo>,
@@ -104,19 +104,16 @@ class RutasAdapter(
         private const val VIEW_TYPE_VARIANT_ROUTE = 3
     }
 
-    // ViewHolder para el subtítulo "Variantes"
-    class SubheaderViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val title: TextView = view.findViewById(R.id.section_header_text)
-    }
-
     class HeaderViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val clearButton: TextView = view.findViewById(R.id.clear_selection_text)
     }
-
     class RutaViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val iconoRuta: ImageView = view.findViewById(R.id.icono_ruta)
         val nombreLinea: TextView = view.findViewById(R.id.nombre_linea)
         val nombreRecorrido: TextView = view.findViewById(R.id.nombre_recorrido)
+    }
+    class SubheaderViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val headerText: TextView = view.findViewById(R.id.section_header_text)
     }
 
     override fun getItemViewType(position: Int): Int {
@@ -144,10 +141,10 @@ class RutasAdapter(
                 holder.clearButton.setOnClickListener { onClearClick() }
             }
             is SubheaderViewHolder -> {
-                holder.title.text = "Variantes"
+                holder.headerText.text = "Variantes"
             }
             is RutaViewHolder -> {
-                val displayRoute = if (getItemViewType(position) == VIEW_TYPE_MAIN_ROUTE) {
+                val displayRoute = if (position <= mainRoutes.size) {
                     mainRoutes[position - 1]
                 } else {
                     variantRoutes[position - mainRoutes.size - 2]
@@ -161,6 +158,7 @@ class RutasAdapter(
                 }
 
                 holder.nombreRecorrido.text = "${displayRoute.route.longName} (${displayRoute.directionName})"
+                holder.iconoRuta.setImageResource(R.drawable.ic_bus)
 
                 holder.itemView.setOnClickListener {
                     onItemClick(displayRoute)
@@ -170,7 +168,10 @@ class RutasAdapter(
     }
 
     override fun getItemCount(): Int {
-        val subheaderCount = if (variantRoutes.isNotEmpty()) 1 else 0
-        return 1 + mainRoutes.size + subheaderCount + variantRoutes.size
+        var count = 1 + mainRoutes.size
+        if (variantRoutes.isNotEmpty()) {
+            count += 1 + variantRoutes.size
+        }
+        return count
     }
 }

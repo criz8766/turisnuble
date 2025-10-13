@@ -6,11 +6,19 @@ import androidx.lifecycle.ViewModel
 import com.google.transit.realtime.GtfsRealtime
 
 class SharedViewModel : ViewModel() {
-    // LiveData para almacenar el último feed de la API
+
     private val _feedMessage = MutableLiveData<GtfsRealtime.FeedMessage>()
     val feedMessage: LiveData<GtfsRealtime.FeedMessage> = _feedMessage
 
+    // --- NUEVO CANAL PARA COMPARTIR PARADEROS CERCANOS ---
+    private val _nearbyStops = MutableLiveData<List<GtfsStop>>()
+    val nearbyStops: LiveData<List<GtfsStop>> = _nearbyStops
+
     fun setFeedMessage(feed: GtfsRealtime.FeedMessage) {
         _feedMessage.value = feed
+    }
+
+    fun setNearbyStops(stops: List<GtfsStop>) {
+        _nearbyStops.value = stops
     }
 }
