@@ -51,6 +51,7 @@ import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.style.expressions.Expression
 import retrofit2.Retrofit
 import retrofit2.converter.protobuf.ProtoConverterFactory
 import java.io.IOException
@@ -184,20 +185,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         }
     }
 
-    // --- FUNCIÓN MEJORADA PARA MANEJAR EL CLIC EN UN PARADERO ---
     private fun handleParaderoClick(stopId: String) {
-        // Punto 2: Hacemos zoom al paradero seleccionado
         GtfsDataManager.stops[stopId]?.let { stop ->
             centerMapOnPoint(stop.location.latitude, stop.location.longitude)
         }
 
-        // Punto 1: Lógica de filtrado y navegación
         val routesForStop = GtfsDataManager.getRoutesForStop(stopId)
 
         if (routesForStop.isNotEmpty()) {
             Toast.makeText(this, "Mostrando rutas para el paradero $stopId", Toast.LENGTH_SHORT).show()
 
-            // Si estamos en la pantalla de detalle, volvemos atrás primero
             if (supportFragmentManager.backStackEntryCount > 0) {
                 supportFragmentManager.popBackStack()
             }
@@ -220,16 +217,70 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
     }
 
     private fun setupBusLayer(style: Style) {
-        val busBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_bus)
-        style.addImage("bus-icon", busBitmap)
+        // Definir un mapa de rutas a recursos de iconos
+        val routeIcons = mapOf(
+            "467" to R.drawable.linea_2,
+            "468" to R.drawable.linea_3,
+            "469" to R.drawable.linea_4,
+            "470" to R.drawable.linea_6,
+            "471" to R.drawable.linea_7,
+            "472" to R.drawable.linea_8,
+            "954" to R.drawable.linea_7,
+            "478" to R.drawable.linea_14,
+            "477" to R.drawable.linea_14,
+            "473" to R.drawable.linea_10,
+            "476" to R.drawable.linea_13,
+            "474" to R.drawable.linea_13,
+            "475" to R.drawable.linea_13,
+            "466" to R.drawable.linea_1,
+        )
+
+        try {
+            // Cargar el icono por defecto primero
+            style.addImage("bus-icon-default", BitmapFactory.decodeResource(resources, R.drawable.ic_bus))
+
+            // Cargar los iconos específicos para cada ruta
+            routeIcons.forEach { (routeId, resourceId) ->
+                try {
+                    val iconId = "bus-icon-$routeId"
+                    val bitmap = BitmapFactory.decodeResource(resources, resourceId)
+                    if (bitmap != null) {
+                        style.addImage(iconId, bitmap)
+                        Log.d("SetupBusLayer", "Icono cargado exitosamente para ruta $routeId")
+                    } else {
+                        Log.e("SetupBusLayer", "No se pudo cargar el bitmap para ruta $routeId")
+                    }
+                } catch (e: Exception) {
+                    Log.e("SetupBusLayer", "Error al cargar icono para ruta $routeId: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("SetupBusLayer", "Error al cargar los íconos: ${e.message}")
+        }
+
         style.addSource(GeoJsonSource("bus-source"))
+
+        // --- CORRECCIÓN PRINCIPAL AQUÍ ---
+        // Construir la expresión 'case' de forma más clara
+        val cases = routeIcons.keys.flatMap { routeId ->
+            listOf(
+                eq(get("routeId"), literal(routeId)), // Condición: cuando routeId == "..."
+                literal("bus-icon-$routeId")          // Resultado: entonces usar "bus-icon-..."
+            )
+        }.toTypedArray()
 
         val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
             withProperties(
-                PropertyFactory.iconImage("bus-icon"),
+                PropertyFactory.iconImage(
+                    // Usar el array de expresiones construido y proveer un valor por defecto
+                    switchCase(
+                        *cases, // El operador '*' expande el array en argumentos individuales
+                        literal("bus-icon-default") // Valor por defecto si ninguna condición se cumple
+                    )
+                ),
                 PropertyFactory.iconAllowOverlap(true),
                 PropertyFactory.iconIgnorePlacement(true),
-                PropertyFactory.iconSize(0.05f),
+                PropertyFactory.iconSize(0.5f),
                 PropertyFactory.iconOpacity(
                     interpolate(
                         linear(), zoom(),
@@ -241,6 +292,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         }
         style.addLayer(busLayer)
     }
+
 
     private fun setupParaderoLayer(style: Style) {
         try {
@@ -446,6 +498,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
                     val point = Point.fromLngLat(position.longitude.toDouble(), position.latitude.toDouble())
                     val feature = Feature.fromGeometry(point)
                     feature.addStringProperty("routeId", trip.routeId)
+                    Log.d("UpdateBusMarkers", "Agregando bus de ruta: ${trip.routeId}")
                     busFeatures.add(feature)
                 }
             }

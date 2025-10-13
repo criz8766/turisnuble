@@ -12,13 +12,12 @@ import androidx.fragment.app.activityViewModels
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
-// La interfaz no cambia
 interface RouteDrawer {
     fun drawRoute(route: GtfsRoute, directionId: Int)
     fun clearRoutes()
 }
 
-// La clase de datos no cambia
+// Ya no necesitamos el iconResId aquí
 data class DisplayRouteInfo(
     val route: GtfsRoute,
     val directionId: Int,
@@ -70,15 +69,11 @@ class RutasFragment : Fragment() {
                 updateAdapterWithFilteredRoutes(filter)
             }
         }
-
         return view
     }
 
-    // --- CAMBIO CLAVE: Añadimos onResume ---
     override fun onResume() {
         super.onResume()
-        // Forzamos la actualización cada vez que la pestaña se vuelve visible.
-        // Esto soluciona el problema de la lista vacía al inicio.
         if (sharedViewModel.routeFilter.value == null) {
             updateAdapterWithAllRoutes()
         } else {
@@ -131,7 +126,6 @@ class RutasFragment : Fragment() {
     }
 }
 
-// El adaptador se mantiene exactamente igual, no necesita cambios.
 class RutasAdapter(
     private var mainRoutes: List<DisplayRouteInfo>,
     private var variantRoutes: List<DisplayRouteInfo>,
@@ -206,7 +200,26 @@ class RutasAdapter(
                 }
 
                 holder.nombreRecorrido.text = "${displayRoute.route.longName} (${displayRoute.directionName})"
-                holder.iconoRuta.setImageResource(R.drawable.ic_bus)
+
+                // Lógica de íconos robusta dentro del adaptador
+                val iconRes = when (displayRoute.route.routeId) {
+                    "468" -> R.drawable.linea_3
+                    "469" -> R.drawable.linea_4
+                    "467" -> R.drawable.linea_2 //linea 2
+                    "470" -> R.drawable.linea_6
+                    "471" -> R.drawable.linea_7
+                    "472" -> R.drawable.linea_8
+                    "954" -> R.drawable.linea_7
+                    "478" -> R.drawable.linea_14
+                    "477" -> R.drawable.linea_14
+                    "473" -> R.drawable.linea_10
+                    "476" -> R.drawable.linea_13
+                    "474" -> R.drawable.linea_13
+                    "475" -> R.drawable.linea_13
+                    "466" -> R.drawable.linea_1
+                    else -> R.drawable.ic_bus
+                }
+                holder.iconoRuta.setImageResource(iconRes)
 
                 holder.itemView.setOnClickListener {
                     onItemClick(displayRoute)
