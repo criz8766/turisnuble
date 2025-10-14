@@ -14,6 +14,9 @@ import com.google.android.gms.location.LocationServices
 import com.google.transit.realtime.GtfsRealtime
 import org.maplibre.android.geometry.LatLng
 import java.util.concurrent.TimeUnit
+import android.location.Location // <-- IMPORTACIÓN NECESARIA
+
+// MapMover ahora se define en DetalleRutaFragment.kt
 
 // --- CAMBIO 1: Añadimos 'directionId' a la información de la llegada ---
 data class LlegadaInfo(val linea: String, val directionId: Int, val tiempoLlegadaMin: Int)
@@ -59,16 +62,30 @@ class RutasCercaFragment : Fragment() {
         sharedViewModel.feedMessage.value?.let { findNearbyStopsAndArrivals(it) }
     }
 
+    // FIX: Función de distancia correcta usando la clase Location
+    private fun distanceTo(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+        val results = FloatArray(1)
+        Location.distanceBetween(lat1, lon1, lat2, lon2, results)
+        return results[0]
+    }
+
     private fun findNearbyStopsAndArrivals(feed: GtfsRealtime.FeedMessage) {
         val fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireActivity())
         try {
             fusedLocationClient.lastLocation.addOnSuccessListener { location ->
                 if (location == null) return@addOnSuccessListener
-                val userLatLng = LatLng(location.latitude, location.longitude)
 
+                val userLat = location.latitude
+                val userLon = location.longitude
+
+                // FIX: Utilizamos la función distanceTo corregida
                 val paraderosCercanos = GtfsDataManager.stops.values
-                    .filter { userLatLng.distanceTo(it.location) <= 500 }
-                    .sortedBy { userLatLng.distanceTo(it.location) }
+                    .map { stop ->
+                        Pair(stop, distanceTo(userLat, userLon, stop.location.latitude, stop.location.longitude))
+                    }
+                    .filter { it.second <= 500 } // Filtrar por 500 metros
+                    .sortedBy { it.second }
+                    .map { it.first } // Mapear de vuelta a GtfsStop
 
                 sharedViewModel.setNearbyStops(paraderosCercanos)
 
@@ -80,7 +97,7 @@ class RutasCercaFragment : Fragment() {
                                 if (stopUpdate.stopId == paradero.stopId) {
                                     val trip = entity.tripUpdate.trip
                                     val routeId = trip.routeId
-                                    // --- CAMBIO 2: Obtenemos el directionId del viaje ---
+                                    // Obtenemos el directionId del viaje
                                     val directionId = trip.directionId
                                     val linea = GtfsDataManager.routes[routeId]?.shortName ?: "Desc."
                                     val tiempoLlegada = stopUpdate.arrival.time

@@ -3,6 +3,8 @@ package cl.example.turisnuble
 import android.content.res.AssetManager
 import android.util.Log
 import org.maplibre.android.geometry.LatLng
+import kotlin.math.pow
+import android.location.Location // <-- IMPORTACIÓN NECESARIA
 
 // Clases de datos (sin cambios)
 data class GtfsRoute(
@@ -42,7 +44,7 @@ object GtfsDataManager {
     val trips = mutableMapOf<String, GtfsTrip>()
     private val stopTimesByTrip = mutableMapOf<String, MutableList<GtfsStopTime>>()
 
-    // --- NUEVA COLECCIÓN PARA BÚSQUEDAS RÁPIDAS ---
+    // --- NUEVA COLECCIÓN PARA BÚSQUEDAS RÁPIDAS (EXISTENTE) ---
     private val tripsByTripId = mutableMapOf<String, GtfsTrip>()
 
 
@@ -153,7 +155,32 @@ object GtfsDataManager {
         return sortedStopTimes.mapNotNull { stopTime -> stops[stopTime.stopId] }
     }
 
-    // --- NUEVA FUNCIÓN ---
+    /**
+     * Calcula una distancia en metros usando la API de Location de Android.
+     */
+    private fun distanceToInMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+        val results = FloatArray(1)
+        Location.distanceBetween(lat1, lon1, lat2, lon2, results)
+        return results[0]
+    }
+
+    /**
+     * Devuelve una lista de los N paraderos más cercanos a una ubicación (lat, lon).
+     */
+    fun getNearbyStops(lat: Double, lon: Double, count: Int = 3): List<GtfsStop> {
+        if (stops.isEmpty()) return emptyList()
+
+        return stops.values
+            .map { stop ->
+                // Emparejamos el paradero con su distancia al punto de interés
+                val distance = distanceToInMeters(lat, lon, stop.location.latitude, stop.location.longitude)
+                Pair(stop, distance)
+            }
+            .sortedBy { it.second } // Ordenamos por la distancia más pequeña
+            .take(count)           // Tomamos los N más cercanos
+            .map { it.first }
+    }
+
     /**
      * Devuelve una lista de todas las rutas (y sus direcciones) que pasan por un paradero específico.
      */

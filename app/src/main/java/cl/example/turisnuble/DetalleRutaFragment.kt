@@ -11,9 +11,13 @@ import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
+// FIX: Definición canónica de MapMover para todo el paquete.
+interface MapMover {
+    fun centerMapOnPoint(lat: Double, lon: Double)
+}
+
 class DetalleRutaFragment : Fragment() {
 
-    // --- CAMBIO PARA PUNTO 2: Referencia para mover el mapa ---
     private var mapMover: MapMover? = null
 
     override fun onAttach(context: Context) {
@@ -52,7 +56,6 @@ class DetalleRutaFragment : Fragment() {
 
             val paraderos = GtfsDataManager.getStopsForRoute(routeId, directionId)
 
-            // --- CAMBIO PARA PUNTO 2: Pasamos la acción de clic al adaptador ---
             recyclerView.adapter = ParaderosDetalleAdapter(paraderos) { paraderoSeleccionado ->
                 // Al hacer clic, le pedimos a MainActivity que mueva el mapa
                 mapMover?.centerMapOnPoint(paraderoSeleccionado.location.latitude, paraderoSeleccionado.location.longitude)
@@ -83,11 +86,8 @@ class DetalleRutaFragment : Fragment() {
     }
 }
 
-// --- ADAPTADOR ACTUALIZADO ---
-
 class ParaderosDetalleAdapter(
     private val paraderos: List<GtfsStop>,
-    // --- CAMBIO PARA PUNTO 2: Recibimos una función para manejar el clic ---
     private val onItemClick: (GtfsStop) -> Unit
 ) :
     RecyclerView.Adapter<ParaderosDetalleAdapter.ParaderoViewHolder>() {
@@ -106,11 +106,9 @@ class ParaderosDetalleAdapter(
     override fun onBindViewHolder(holder: ParaderoViewHolder, position: Int) {
         val paradero = paraderos[position]
 
-        // --- SOLUCIÓN PARA PUNTO 1: Mostramos el ID del paradero ---
         holder.stopSequence.text = paradero.stopId
         holder.stopName.text = paradero.name
 
-        // --- CAMBIO PARA PUNTO 2: Asignamos el listener a la fila ---
         holder.itemView.setOnClickListener {
             onItemClick(paradero)
         }

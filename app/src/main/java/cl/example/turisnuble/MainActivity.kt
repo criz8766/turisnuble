@@ -56,11 +56,19 @@ import retrofit2.Retrofit
 import retrofit2.converter.protobuf.ProtoConverterFactory
 import java.io.IOException
 
-class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMover {
+// Se asume que MapMover está definido en DetalleRutaFragment.kt
+// Se asume que DetalleTurismoNavigator y TurismoActionHandler están definidos en sus respectivos archivos
+
+class MainActivity : AppCompatActivity(),
+    OnMapReadyCallback,
+    RouteDrawer,
+    TurismoActionHandler,
+    DetalleTurismoNavigator,
+    MapMover { // Se implementan todas las interfaces necesarias
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var mapView: MapView
-    private lateinit var map: MapLibreMap
+    private lateinit var map: MapLibreMap // Variable para el mapa
     private lateinit var locationFab: FloatingActionButton
     private lateinit var bottomSheetBehavior: BottomSheetBehavior<FrameLayout>
     private lateinit var tabLayout: TabLayout
@@ -121,9 +129,15 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
             requestFreshLocation()
         }
 
+        val bottomSheetContent = findViewById<View>(R.id.bottom_sheet_content)
+
         supportFragmentManager.addOnBackStackChangedListener {
             if (supportFragmentManager.backStackEntryCount == 0) {
-                findViewById<View>(R.id.bottom_sheet_content).visibility = View.VISIBLE
+                bottomSheetContent.visibility = View.VISIBLE
+            } else {
+                // Si hay fragmentos en el back stack (ej: DetalleTurismoFragment),
+                // ocultamos el contenido principal para que solo se vea el fragmento de detalle.
+                bottomSheetContent.visibility = View.GONE
             }
         }
 
@@ -195,6 +209,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         if (routesForStop.isNotEmpty()) {
             Toast.makeText(this, "Mostrando rutas para el paradero $stopId", Toast.LENGTH_SHORT).show()
 
+            // Limpiar cualquier fragmento de detalle anterior
             if (supportFragmentManager.backStackEntryCount > 0) {
                 supportFragmentManager.popBackStack()
             }
@@ -207,6 +222,21 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         }
     }
 
+    // Método análogo a showRouteDetail, usado por TurismoFragment
+    override fun showTurismoDetail(punto: PuntoTuristico) {
+        val fragment = DetalleTurismoFragment.newInstance(punto)
+        // Ocultar el contenido principal (ViewPager)
+        findViewById<View>(R.id.bottom_sheet_content).visibility = View.GONE
+        supportFragmentManager.beginTransaction()
+            // Usamos el ID del contenedor del bottom sheet
+            .replace(R.id.bottom_sheet, fragment)
+            .addToBackStack("turismo_detail")
+            .commit()
+
+        bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+    }
+
+    // Método para mostrar el detalle de una ruta (utilizado por RutasFragment)
     fun showRouteDetail(routeId: String, directionId: Int) {
         val fragment = DetalleRutaFragment.newInstance(routeId, directionId)
         findViewById<View>(R.id.bottom_sheet_content).visibility = View.GONE
@@ -215,6 +245,38 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
             .addToBackStack(null)
             .commit()
     }
+
+    // Implementación de DetalleTurismoNavigator: Mueve a Rutas y filtra
+    override fun showRoutesForStop(stopId: String) {
+        // 1. Encontrar las rutas que pasan por el paradero
+        val routesForStop = GtfsDataManager.getRoutesForStop(stopId)
+
+        // 2. Aplicar el filtro a la vista de Rutas
+        sharedViewModel.setRouteFilter(routesForStop)
+
+        // 3. Cambiar a la pestaña de Rutas (índice 2)
+        viewPager.setCurrentItem(2, true)
+
+        // 4. Volver a la vista principal del BottomSheet (oculta DetalleTurismoFragment)
+        supportFragmentManager.popBackStack("turismo_detail", 1)
+    }
+
+    override fun hideDetailFragment() {
+        // Volver al fragmento anterior (TurismoFragment en el ViewPager)
+        supportFragmentManager.popBackStack("turismo_detail", 1)
+    }
+
+    // ****************************************************
+    // FIX PUNTUAL: Se usa animateCamera con duración para el zoom suave.
+    // ****************************************************
+    // Implementación de MapMover y TurismoActionHandler
+    override fun centerMapOnPoint(lat: Double, lon: Double) {
+        if (::map.isInitialized) {
+            // Usamos animateCamera con un tiempo de 1500ms para asegurar el zoom suave
+            map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 16.0), 1500)
+        }
+    }
+
 
     private fun setupBusLayer(style: Style) {
         // Definir un mapa de rutas a recursos de iconos
@@ -404,12 +466,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback, RouteDrawer, MapMo
         currentRouteLayerId = null
         currentRouteSourceId = null
         showParaderosOnMap(emptyList())
-    }
-
-    override fun centerMapOnPoint(lat: Double, lon: Double) {
-        if (::map.isInitialized) {
-            map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 16.0), 1500)
-        }
     }
 
     private fun addTurismoMarkers() {

@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide // <-- NUEVA IMPORTACIÓN
 
 // El constructor ahora incluye la acción de clic
 class TurismoAdapter(
@@ -27,7 +28,14 @@ class TurismoAdapter(
 
     override fun onBindViewHolder(holder: PuntoTuristicoViewHolder, position: Int) {
         val punto = puntosTuristicos[position]
-        holder.imagen.setImageResource(punto.imagenId)
+
+        // FIX PARA FLUIDEZ: Usar Glide para cargar la imagen asíncronamente, decodificarla
+        // en un hilo secundario y cachearla, mejorando drásticamente el scrolling.
+        Glide.with(holder.itemView.context)
+            .load(punto.imagenId) // Carga la imagen desde los recursos (R.drawable.*)
+            .centerCrop()
+            .into(holder.imagen)
+
         holder.nombre.text = punto.nombre
         holder.direccion.text = punto.direccion
 
