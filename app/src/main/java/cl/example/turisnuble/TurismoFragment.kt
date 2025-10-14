@@ -10,10 +10,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
 // Interfaz para manejar las acciones del fragmento de turismo en MainActivity
-interface TurismoActionHandler {
-    fun centerMapOnPoint(lat: Double, lon: Double)
-    fun showTurismoDetail(punto: PuntoTuristico)
-}
+
 
 class TurismoFragment : Fragment() {
 

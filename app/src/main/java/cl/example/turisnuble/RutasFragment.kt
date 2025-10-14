@@ -12,10 +12,6 @@ import androidx.fragment.app.activityViewModels
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
-interface RouteDrawer {
-    fun drawRoute(route: GtfsRoute, directionId: Int)
-    fun clearRoutes()
-}
 
 // Ya no necesitamos el iconResId aquí
 data class DisplayRouteInfo(

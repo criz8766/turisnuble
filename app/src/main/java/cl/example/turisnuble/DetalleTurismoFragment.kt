@@ -15,10 +15,6 @@ import java.io.Serializable
 
 // Interfaz para interactuar con MainActivity para cambiar de pestaña y filtrar rutas.
 // Similar a como MainActivity maneja el detalle de una Ruta.
-interface DetalleTurismoNavigator {
-    fun showRoutesForStop(stopId: String)
-    fun hideDetailFragment()
-}
 
 class DetalleTurismoFragment : Fragment() {
 

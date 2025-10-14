@@ -12,9 +12,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
 // FIX: Definición canónica de MapMover para todo el paquete.
-interface MapMover {
-    fun centerMapOnPoint(lat: Double, lon: Double)
-}
 
 class DetalleRutaFragment : Fragment() {
 

@@ -40,6 +40,7 @@ import org.maplibre.android.location.modes.CameraMode
 import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapLibreMap.CancelableCallback // Necesario para el callback
 import org.maplibre.android.maps.OnMapReadyCallback
 import org.maplibre.android.maps.Style
 import org.maplibre.geojson.Feature
@@ -56,19 +57,17 @@ import retrofit2.Retrofit
 import retrofit2.converter.protobuf.ProtoConverterFactory
 import java.io.IOException
 
-// Se asume que MapMover está definido en DetalleRutaFragment.kt
-// Se asume que DetalleTurismoNavigator y TurismoActionHandler están definidos en sus respectivos archivos
 
 class MainActivity : AppCompatActivity(),
     OnMapReadyCallback,
     RouteDrawer,
     TurismoActionHandler,
     DetalleTurismoNavigator,
-    MapMover { // Se implementan todas las interfaces necesarias
+    MapMover { // Las interfaces MapMover, RouteDrawer, etc. se asumen importadas desde Interfaces.kt y MapMover.kt
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var mapView: MapView
-    private lateinit var map: MapLibreMap // Variable para el mapa
+    private lateinit var map: MapLibreMap
     private lateinit var locationFab: FloatingActionButton
     private lateinit var bottomSheetBehavior: BottomSheetBehavior<FrameLayout>
     private lateinit var tabLayout: TabLayout
@@ -135,8 +134,6 @@ class MainActivity : AppCompatActivity(),
             if (supportFragmentManager.backStackEntryCount == 0) {
                 bottomSheetContent.visibility = View.VISIBLE
             } else {
-                // Si hay fragmentos en el back stack (ej: DetalleTurismoFragment),
-                // ocultamos el contenido principal para que solo se vea el fragmento de detalle.
                 bottomSheetContent.visibility = View.GONE
             }
         }
@@ -209,7 +206,6 @@ class MainActivity : AppCompatActivity(),
         if (routesForStop.isNotEmpty()) {
             Toast.makeText(this, "Mostrando rutas para el paradero $stopId", Toast.LENGTH_SHORT).show()
 
-            // Limpiar cualquier fragmento de detalle anterior
             if (supportFragmentManager.backStackEntryCount > 0) {
                 supportFragmentManager.popBackStack()
             }
@@ -222,16 +218,42 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    // Método análogo a showRouteDetail, usado por TurismoFragment
+    // ****************************************************
+    // FIX: Sincronización de Animación y Fragmento (Elimina el corte)
+    // ****************************************************
     override fun showTurismoDetail(punto: PuntoTuristico) {
+        if (!::map.isInitialized) {
+            doShowTurismoDetail(punto)
+            return
+        }
+
+        // Inicia el zoom suave con un callback
+        map.animateCamera(
+            CameraUpdateFactory.newLatLngZoom(LatLng(punto.latitud, punto.longitud), 16.0),
+            1500, // Duración de 1.5s
+            object : CancelableCallback {
+                override fun onCancel() {
+                    // Si se cancela, se ejecuta la lógica del fragmento
+                    doShowTurismoDetail(punto)
+                }
+
+                override fun onFinish() {
+                    // FIX: UNA VEZ QUE EL ZOOM HA TERMINADO, se realiza la transición del BottomSheet.
+                    doShowTurismoDetail(punto)
+                }
+            }
+        )
+    }
+
+    // Helper function para la lógica de mostrar el fragmento de detalle (se ejecuta DESPUÉS de la animación)
+    private fun doShowTurismoDetail(punto: PuntoTuristico) {
+        // La lógica del fragmento se ejecuta aquí
         val fragment = DetalleTurismoFragment.newInstance(punto)
-        // Ocultar el contenido principal (ViewPager)
         findViewById<View>(R.id.bottom_sheet_content).visibility = View.GONE
         supportFragmentManager.beginTransaction()
-            // Usamos el ID del contenedor del bottom sheet
             .replace(R.id.bottom_sheet, fragment)
             .addToBackStack("turismo_detail")
-            .commit()
+            .commitAllowingStateLoss()
 
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
     }
@@ -248,31 +270,20 @@ class MainActivity : AppCompatActivity(),
 
     // Implementación de DetalleTurismoNavigator: Mueve a Rutas y filtra
     override fun showRoutesForStop(stopId: String) {
-        // 1. Encontrar las rutas que pasan por el paradero
         val routesForStop = GtfsDataManager.getRoutesForStop(stopId)
-
-        // 2. Aplicar el filtro a la vista de Rutas
         sharedViewModel.setRouteFilter(routesForStop)
-
-        // 3. Cambiar a la pestaña de Rutas (índice 2)
         viewPager.setCurrentItem(2, true)
-
-        // 4. Volver a la vista principal del BottomSheet (oculta DetalleTurismoFragment)
         supportFragmentManager.popBackStack("turismo_detail", 1)
     }
 
     override fun hideDetailFragment() {
-        // Volver al fragmento anterior (TurismoFragment en el ViewPager)
         supportFragmentManager.popBackStack("turismo_detail", 1)
     }
 
-    // ****************************************************
-    // FIX PUNTUAL: Se usa animateCamera con duración para el zoom suave.
-    // ****************************************************
-    // Implementación de MapMover y TurismoActionHandler
+    // Implementación de MapMover y TurismoActionHandler (Zoom suave para paraderos)
     override fun centerMapOnPoint(lat: Double, lon: Double) {
         if (::map.isInitialized) {
-            // Usamos animateCamera con un tiempo de 1500ms para asegurar el zoom suave
+            // Usa animateCamera para el zoom suave
             map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 16.0), 1500)
         }
     }
@@ -322,22 +333,19 @@ class MainActivity : AppCompatActivity(),
 
         style.addSource(GeoJsonSource("bus-source"))
 
-        // --- CORRECCIÓN PRINCIPAL AQUÍ ---
-        // Construir la expresión 'case' de forma más clara
         val cases = routeIcons.keys.flatMap { routeId ->
             listOf(
-                eq(get("routeId"), literal(routeId)), // Condición: cuando routeId == "..."
-                literal("bus-icon-$routeId")          // Resultado: entonces usar "bus-icon-..."
+                eq(get("routeId"), literal(routeId)),
+                literal("bus-icon-$routeId")
             )
         }.toTypedArray()
 
         val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
             withProperties(
                 PropertyFactory.iconImage(
-                    // Usar el array de expresiones construido y proveer un valor por defecto
                     switchCase(
-                        *cases, // El operador '*' expande el array en argumentos individuales
-                        literal("bus-icon-default") // Valor por defecto si ninguna condición se cumple
+                        *cases,
+                        literal("bus-icon-default")
                     )
                 ),
                 PropertyFactory.iconAllowOverlap(true),
