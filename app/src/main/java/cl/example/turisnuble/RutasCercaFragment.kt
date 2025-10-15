@@ -14,11 +14,9 @@ import com.google.android.gms.location.LocationServices
 import com.google.transit.realtime.GtfsRealtime
 import org.maplibre.android.geometry.LatLng
 import java.util.concurrent.TimeUnit
-import android.location.Location // <-- IMPORTACIÓN NECESARIA
+import android.location.Location
 
-// MapMover ahora se define en DetalleRutaFragment.kt
-
-// --- CAMBIO 1: Añadimos 'directionId' a la información de la llegada ---
+// Las data classes no cambian
 data class LlegadaInfo(val linea: String, val directionId: Int, val tiempoLlegadaMin: Int)
 data class ParaderoConLlegadas(val paradero: GtfsStop, val llegadas: List<LlegadaInfo>)
 
@@ -28,13 +26,16 @@ class RutasCercaFragment : Fragment() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: ParaderosCercanosAdapter
     private var mapMover: MapMover? = null
+    // --- NUEVO: Añadimos una referencia para poder limpiar el mapa ---
+    private var routeDrawer: RouteDrawer? = null
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
-        if (context is MapMover) {
-            mapMover = context
-        } else {
-            throw RuntimeException("$context must implement MapMover")
+        mapMover = context as? MapMover
+        routeDrawer = context as? RouteDrawer
+
+        if (mapMover == null || routeDrawer == null) {
+            throw RuntimeException("$context must implement MapMover and RouteDrawer")
         }
     }
 
@@ -47,6 +48,13 @@ class RutasCercaFragment : Fragment() {
         recyclerView.layoutManager = LinearLayoutManager(context)
 
         adapter = ParaderosCercanosAdapter(emptyList()) { paraderoSeleccionado ->
+            // --- ¡AQUÍ ESTÁ LA LÓGICA CORRECTA! ---
+
+            // 1. Primero, limpiamos cualquier filtro o ruta dibujada en el mapa,
+            //    usando la misma función que el botón "Mostrar buses cercanos".
+            routeDrawer?.clearRoutes(recenterToUser = false)
+
+            // 2. Después, centramos el mapa en el paradero que el usuario seleccionó.
             mapMover?.centerMapOnPoint(paraderoSeleccionado.location.latitude, paraderoSeleccionado.location.longitude)
         }
         recyclerView.adapter = adapter
@@ -62,7 +70,6 @@ class RutasCercaFragment : Fragment() {
         sharedViewModel.feedMessage.value?.let { findNearbyStopsAndArrivals(it) }
     }
 
-    // FIX: Función de distancia correcta usando la clase Location
     private fun distanceTo(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
         val results = FloatArray(1)
         Location.distanceBetween(lat1, lon1, lat2, lon2, results)
@@ -78,14 +85,13 @@ class RutasCercaFragment : Fragment() {
                 val userLat = location.latitude
                 val userLon = location.longitude
 
-                // FIX: Utilizamos la función distanceTo corregida
                 val paraderosCercanos = GtfsDataManager.stops.values
                     .map { stop ->
                         Pair(stop, distanceTo(userLat, userLon, stop.location.latitude, stop.location.longitude))
                     }
-                    .filter { it.second <= 500 } // Filtrar por 500 metros
+                    .filter { it.second <= 500 }
                     .sortedBy { it.second }
-                    .map { it.first } // Mapear de vuelta a GtfsStop
+                    .map { it.first }
 
                 sharedViewModel.setNearbyStops(paraderosCercanos)
 
@@ -97,7 +103,6 @@ class RutasCercaFragment : Fragment() {
                                 if (stopUpdate.stopId == paradero.stopId) {
                                     val trip = entity.tripUpdate.trip
                                     val routeId = trip.routeId
-                                    // Obtenemos el directionId del viaje
                                     val directionId = trip.directionId
                                     val linea = GtfsDataManager.routes[routeId]?.shortName ?: "Desc."
                                     val tiempoLlegada = stopUpdate.arrival.time
@@ -106,7 +111,6 @@ class RutasCercaFragment : Fragment() {
                                     val diffMinutos = TimeUnit.SECONDS.toMinutes(diffSegundos).toInt()
 
                                     if (diffMinutos >= 0) {
-                                        // Guardamos también la dirección
                                         llegadas.add(LlegadaInfo(linea, directionId, diffMinutos))
                                     }
                                 }
@@ -123,15 +127,17 @@ class RutasCercaFragment : Fragment() {
     override fun onDetach() {
         super.onDetach()
         mapMover = null
+        // --- Limpiamos la referencia al salir ---
+        routeDrawer = null
     }
 }
 
+// La clase ParaderosCercanosAdapter no necesita cambios, puede quedar como está.
 class ParaderosCercanosAdapter(
     private var data: List<ParaderoConLlegadas>,
     private val onItemClick: (GtfsStop) -> Unit
 ) : RecyclerView.Adapter<ParaderosCercanosAdapter.ParaderoViewHolder>() {
 
-    // 1. ViewHolder actualizado para encontrar el nuevo TextView del "chip"
     class ParaderoViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val stopIdChip: TextView = view.findViewById(R.id.stop_id_chip)
         val nombreParadero: TextView = view.findViewById(R.id.nombre_paradero)
@@ -146,11 +152,9 @@ class ParaderosCercanosAdapter(
     override fun onBindViewHolder(holder: ParaderoViewHolder, position: Int) {
         val item = data[position]
 
-        // 2. Asignamos el texto a cada TextView por separado
         holder.stopIdChip.text = item.paradero.stopId
         holder.nombreParadero.text = item.paradero.name
 
-        // La lógica de las llegadas no cambia
         if (item.llegadas.isEmpty()) {
             holder.llegadasBuses.text = "No hay próximas llegadas."
         } else {

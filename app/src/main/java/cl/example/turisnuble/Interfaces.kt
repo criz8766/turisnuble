@@ -6,7 +6,10 @@ package cl.example.turisnuble
 
 interface RouteDrawer {
     fun drawRoute(route: GtfsRoute, directionId: Int)
-    fun clearRoutes()
+    // --- CAMBIO: Añadimos un parámetro opcional ---
+    // Por defecto, se centrará en el usuario para no romper la funcionalidad
+    // del botón "Mostrar buses cercanos".
+    fun clearRoutes(recenterToUser: Boolean = true)
 }
 
 interface TurismoActionHandler {

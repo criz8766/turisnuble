@@ -456,13 +456,18 @@ class MainActivity : AppCompatActivity(),
         updateBusMarkers()
     }
 
-    override fun clearRoutes() {
+    override fun clearRoutes(recenterToUser: Boolean) {
         clearDrawnElements()
         selectedRouteId = null
         selectedDirectionId = null
         updateBusMarkers()
         Toast.makeText(this, "Mostrando buses cercanos", Toast.LENGTH_SHORT).show()
-        requestFreshLocation()
+
+        // Solo centramos el mapa en la ubicación del usuario si es requerido.
+        if (recenterToUser) {
+            requestFreshLocation()
+        }
+
         sharedViewModel.nearbyStops.value?.let { showParaderosOnMap(it) }
     }
 
