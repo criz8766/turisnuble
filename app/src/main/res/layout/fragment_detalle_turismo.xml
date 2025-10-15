@@ -1,110 +1,120 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="?android:colorBackground">
 
-    <LinearLayout
+    <!-- ✅ HEADER FIJO (NO SCROLLEA) -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:padding="16dp"> <!-- (Opcional: sombra sutil profesional) -->
 
-        <FrameLayout
-            android:layout_width="match_parent"
+        <ImageButton
+            android:id="@+id/back_button"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:padding="16dp">
+            android:src="?attr/homeAsUpIndicator"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:layout_gravity="start|center_vertical"
+            android:contentDescription="Volver" />
 
-            <ImageButton
-                android:id="@+id/back_button"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:src="?attr/homeAsUpIndicator"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:layout_gravity="start|center_vertical"
-                android:contentDescription="Volver" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Detalle Turístico"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:layout_gravity="center"
+            android:textColor="?attr/colorOnSurface"
+            />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:text="Detalle Turístico" />
-        </FrameLayout>
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="?android:attr/listDivider" />
+    </FrameLayout>
+
+    <!-- ✅ SOLO EL CONTENIDO INTERNO HACE SCROLL -->
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
+            android:orientation="vertical">
 
-            <ImageView
-                android:id="@+id/imagen_punto_turistico"
+
+
+            <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="200dp"
-                android:scaleType="centerCrop"
-                android:adjustViewBounds="true"
-                tools:src="@drawable/catedral_chillan"
-                android:contentDescription="Imagen del punto turístico" />
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <ImageView
+                    android:id="@+id/imagen_punto_turistico"
+                    android:layout_width="match_parent"
+                    android:layout_height="200dp"
+                    android:scaleType="centerCrop"
+                    android:adjustViewBounds="true"
+                    tools:src="@drawable/catedral_chillan"
+                    android:contentDescription="Imagen del punto turístico" />
+
+                <TextView
+                    android:id="@+id/nombre_punto_turistico"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textSize="24sp"
+                    android:textStyle="bold"
+                    tools:text="Catedral de Chillán" />
+
+                <TextView
+                    android:id="@+id/direccion_punto_turistico"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textSize="16sp"
+                    android:textColor="?android:attr/textColorSecondary"
+                    tools:text="Arauco 505, Chillán" />
+
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="?android:attr/listDivider"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="16dp" />
 
             <TextView
-                android:id="@+id/nombre_punto_turistico"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:textSize="24sp"
+                android:text="Paraderos Cercanos"
+                android:textSize="18sp"
                 android:textStyle="bold"
-                tools:text="Catedral de Chillán" />
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="16dp" />
 
             <TextView
-                android:id="@+id/direccion_punto_turistico"
-                android:layout_width="wrap_content"
+                android:id="@+id/no_paraderos_cercanos"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textSize="16sp"
-                android:textColor="?android:attr/textColorSecondary"
-                tools:text="Arauco 505, Chillán" />
+                android:text="No se encontraron paraderos de bus cercanos para este punto."
+                android:padding="16dp"
+                android:visibility="gone" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/recycler_view_paraderos_cercanos"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:nestedScrollingEnabled="false"
+                tools:listitem="@layout/item_paradero_cercano" />
 
         </LinearLayout>
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="?android:attr/listDivider"
-            android:layout_marginStart="16dp"
-            android:layout_marginEnd="16dp"/>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Paraderos Cercanos"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="16dp" />
-
-        <TextView
-            android:id="@+id/no_paraderos_cercanos"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="No se encontraron paraderos de bus cercanos para este punto."
-            android:padding="16dp"
-            android:visibility="gone"/>
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/recycler_view_paraderos_cercanos"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:nestedScrollingEnabled="false"
-            tools:listitem="@layout/item_paradero_cercano" />
-
-    </LinearLayout>
-</androidx.core.widget.NestedScrollView>
+    </androidx.core.widget.NestedScrollView>
+</LinearLayout>
