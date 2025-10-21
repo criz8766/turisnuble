@@ -4,6 +4,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import com.google.transit.realtime.GtfsRealtime
+import org.maplibre.android.geometry.LatLng
 
 class SharedViewModel : ViewModel() {
 
@@ -16,9 +17,12 @@ class SharedViewModel : ViewModel() {
     private val _routeFilter = MutableLiveData<List<DisplayRouteInfo>?>()
     val routeFilter: LiveData<List<DisplayRouteInfo>?> = _routeFilter
 
-    // --- Dato para el paradero seleccionado ---
     private val _selectedStopId = MutableLiveData<String?>()
     val selectedStopId: LiveData<String?> = _selectedStopId
+
+    // --- NUEVO: Guarda el centro de interés para los cálculos de cercanía ---
+    private val _nearbyCalculationCenter = MutableLiveData<LatLng?>()
+    val nearbyCalculationCenter: LiveData<LatLng?> = _nearbyCalculationCenter
 
     fun setFeedMessage(feed: GtfsRealtime.FeedMessage) {
         _feedMessage.value = feed
@@ -36,14 +40,16 @@ class SharedViewModel : ViewModel() {
         _routeFilter.value = null
     }
 
-    // --- NUEVA FUNCIÓN: Para seleccionar o deseleccionar un paradero ---
     fun selectStop(stopId: String?) {
-        // Si el ID que llega es el mismo que ya está seleccionado, lo limpiamos (deseleccionar).
-        // Si es diferente, lo seleccionamos.
         if (_selectedStopId.value == stopId) {
             _selectedStopId.value = null
         } else {
             _selectedStopId.value = stopId
         }
+    }
+
+    // --- NUEVA FUNCIÓN: Para establecer o limpiar el punto de interés ---
+    fun setNearbyCalculationCenter(center: LatLng?) {
+        _nearbyCalculationCenter.value = center
     }
 }

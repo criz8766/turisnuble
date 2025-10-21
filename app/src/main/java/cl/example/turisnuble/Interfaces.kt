@@ -10,6 +10,7 @@ interface RouteDrawer {
     // Por defecto, se centrará en el usuario para no romper la funcionalidad
     // del botón "Mostrar buses cercanos".
     fun clearRoutes(recenterToUser: Boolean = true)
+    fun displayStopAndNearbyStops(stop: GtfsStop)
 }
 
 interface TurismoActionHandler {

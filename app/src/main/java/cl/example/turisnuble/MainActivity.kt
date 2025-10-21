@@ -99,6 +99,29 @@ class MainActivity : AppCompatActivity(),
             }
         }
 
+    override fun displayStopAndNearbyStops(stop: GtfsStop) {
+        // 1. Limpia cualquier línea de ruta dibujada
+        clearDrawnElements()
+        selectedRouteId = null
+        selectedDirectionId = null
+
+        // 2. Establece el paradero presionado como el seleccionado
+        sharedViewModel.selectStop(stop.stopId)
+
+        // 3. Busca y muestra los paraderos alrededor del paradero SELECCIONADO
+        findAndShowStopsAroundPoint(stop.location.latitude, stop.location.longitude)
+
+        // 4. Centra suavemente el mapa en el paradero
+        centerMapOnPoint(stop.location.latitude, stop.location.longitude)
+
+        // 5. (Opcional pero recomendado) Actualiza los buses para mostrar los cercanos al paradero
+        val stopLocation = Location("").apply {
+            latitude = stop.location.latitude
+            longitude = stop.location.longitude
+        }
+        updateBusMarkers(stopLocation)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
@@ -124,7 +147,17 @@ class MainActivity : AppCompatActivity(),
 
         locationFab = findViewById(R.id.location_fab)
         locationFab.setOnClickListener {
-            requestFreshLocation()
+            // --- ACCIÓN CLAVE: Al presionar este botón, se pierde el contexto ---
+            sharedViewModel.setNearbyCalculationCenter(null) // Olvida el punto turístico.
+            sharedViewModel.selectStop(null) // Deselecciona cualquier paradero.
+            requestFreshLocation() // Busca al usuario.
+        }
+        // Este observador es clave. Redibuja los paraderos en el mapa CADA VEZ
+        // que la lista de paraderos cercanos cambia en el ViewModel.
+        sharedViewModel.nearbyStops.observe(this) { nearbyStops ->
+            if (selectedRouteId == null) {
+                showParaderosOnMap(nearbyStops)
+            }
         }
 
         val bottomSheetContent = findViewById<View>(R.id.bottom_sheet_content)
@@ -233,16 +266,12 @@ class MainActivity : AppCompatActivity(),
             CameraUpdateFactory.newLatLngZoom(LatLng(punto.latitud, punto.longitud), 16.0),
             1500,
             object : CancelableCallback {
-                override fun onCancel() {
-                    doShowTurismoDetail(punto)
-                }
+                override fun onCancel() { doShowTurismoDetail(punto) }
 
                 override fun onFinish() {
-                    // --- ¡LÓGICA MEJORADA! ---
-                    // 1. Muestra el detalle del punto turístico.
                     doShowTurismoDetail(punto)
-                    // 2. Busca y muestra los paraderos alrededor de ese punto.
-                    findAndShowStopsAroundPoint(punto.latitud, punto.longitud)
+                    // --- ACCIÓN CLAVE: Establece el punto turístico como el contexto ---
+                    sharedViewModel.setNearbyCalculationCenter(LatLng(punto.latitud, punto.longitud))
                 }
             }
         )
@@ -368,7 +397,7 @@ class MainActivity : AppCompatActivity(),
             .addOnSuccessListener { location: Location? ->
                 if (location != null) {
                     map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(location.latitude, location.longitude), 15.0))
-                    updateBusMarkers()
+                    updateBusMarkers() // <-- Llamada sin cambios aquí
                 }
             }
     }
@@ -423,12 +452,27 @@ class MainActivity : AppCompatActivity(),
         selectedRouteId = null
         selectedDirectionId = null
         sharedViewModel.selectStop(null)
+        sharedViewModel.setNearbyCalculationCenter(null)
         updateBusMarkers()
         Toast.makeText(this, "Mostrando buses cercanos", Toast.LENGTH_SHORT).show()
+
         if (recenterToUser) {
             requestFreshLocation()
+        } else {
+            // --- ¡BLOQUE CORREGIDO Y MEJORADO! ---
+            // Si no recentramos, de todos modos calculamos los paraderos
+            // alrededor de la última ubicación conocida del usuario.
+            // Usamos FusedLocationProviderClient, que es la forma correcta.
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+                    location?.let {
+                        val userStops = GtfsDataManager.stops.values
+                            .filter { stop -> distanceBetween(it.latitude, it.longitude, stop.location.latitude, stop.location.longitude) <= 500 }
+                        sharedViewModel.setNearbyStops(userStops)
+                    }
+                }
+            }
         }
-        sharedViewModel.nearbyStops.value?.let { showParaderosOnMap(it) }
     }
 
     private fun clearDrawnElements() {
@@ -488,27 +532,36 @@ class MainActivity : AppCompatActivity(),
         return results[0]
     }
 
-    private fun updateBusMarkers() {
+    private fun updateBusMarkers(centerLocation: Location? = null) {
         val feed = lastFeedMessage ?: return
-        val userLocation = map.locationComponent.lastKnownLocation
+        // Usa la ubicación proporcionada, o si es nula, la del usuario.
+        val location = centerLocation ?: map.locationComponent.lastKnownLocation
         val busFeatures = mutableListOf<Feature>()
+
         for (entity in feed.entityList) {
             if (entity.hasVehicle() && entity.vehicle.hasTrip() && entity.vehicle.hasPosition()) {
                 val vehicle = entity.vehicle
                 val trip = vehicle.trip
                 val position = vehicle.position
                 var shouldShow = false
+
                 if (selectedRouteId != null) {
                     if (selectedRouteId == trip.routeId && selectedDirectionId == trip.directionId) {
                         shouldShow = true
                     }
                 } else {
-                    if (userLocation != null) {
-                        if (distanceBetween(userLocation.latitude, userLocation.longitude, position.latitude.toDouble(), position.longitude.toDouble()) <= 1000) {
+                    // Si hay una ubicación de referencia, calcula la distancia
+                    if (location != null) {
+                        val distance = distanceBetween(
+                            location.latitude, location.longitude,
+                            position.latitude.toDouble(), position.longitude.toDouble()
+                        )
+                        if (distance <= 1000) { // Radio de 1km
                             shouldShow = true
                         }
                     }
                 }
+
                 if (shouldShow) {
                     val point = Point.fromLngLat(position.longitude.toDouble(), position.latitude.toDouble())
                     val feature = Feature.fromGeometry(point)
@@ -519,6 +572,10 @@ class MainActivity : AppCompatActivity(),
         }
         mapStyle?.getSourceAs<GeoJsonSource>("bus-source")?.setGeoJson(FeatureCollection.fromFeatures(busFeatures))
     }
+
+    // Al pedir la ubicación del usuario, llamamos a updateBusMarkers sin parámetros
+    // para que use la ubicación del GPS como siempre.
+
 
     private fun enableLocation(style: Style) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
