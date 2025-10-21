@@ -54,7 +54,10 @@ class RutasCercaFragment : Fragment() {
             //    usando la misma función que el botón "Mostrar buses cercanos".
             routeDrawer?.clearRoutes(recenterToUser = false)
 
-            // 2. Después, centramos el mapa en el paradero que el usuario seleccionó.
+            // 2. Notificamos al ViewModel qué paradero se ha seleccionado.
+            sharedViewModel.selectStop(paraderoSeleccionado.stopId)
+
+            // 3. Hacemos el zoom suave al paradero.
             mapMover?.centerMapOnPoint(paraderoSeleccionado.location.latitude, paraderoSeleccionado.location.longitude)
         }
         recyclerView.adapter = adapter

@@ -13,9 +13,12 @@ class SharedViewModel : ViewModel() {
     private val _nearbyStops = MutableLiveData<List<GtfsStop>>()
     val nearbyStops: LiveData<List<GtfsStop>> = _nearbyStops
 
-    // --- NUEVO CANAL PARA EL FILTRO DE RUTAS ---
     private val _routeFilter = MutableLiveData<List<DisplayRouteInfo>?>()
     val routeFilter: LiveData<List<DisplayRouteInfo>?> = _routeFilter
+
+    // --- Dato para el paradero seleccionado ---
+    private val _selectedStopId = MutableLiveData<String?>()
+    val selectedStopId: LiveData<String?> = _selectedStopId
 
     fun setFeedMessage(feed: GtfsRealtime.FeedMessage) {
         _feedMessage.value = feed
@@ -25,12 +28,22 @@ class SharedViewModel : ViewModel() {
         _nearbyStops.value = stops
     }
 
-    // --- NUEVAS FUNCIONES PARA MANEJAR EL FILTRO ---
     fun setRouteFilter(filteredRoutes: List<DisplayRouteInfo>) {
         _routeFilter.value = filteredRoutes
     }
 
     fun clearRouteFilter() {
         _routeFilter.value = null
+    }
+
+    // --- NUEVA FUNCIÓN: Para seleccionar o deseleccionar un paradero ---
+    fun selectStop(stopId: String?) {
+        // Si el ID que llega es el mismo que ya está seleccionado, lo limpiamos (deseleccionar).
+        // Si es diferente, lo seleccionamos.
+        if (_selectedStopId.value == stopId) {
+            _selectedStopId.value = null
+        } else {
+            _selectedStopId.value = stopId
+        }
     }
 }

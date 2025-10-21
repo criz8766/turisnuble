@@ -40,7 +40,7 @@ import org.maplibre.android.location.modes.CameraMode
 import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.MapLibreMap
-import org.maplibre.android.maps.MapLibreMap.CancelableCallback // Necesario para el callback
+import org.maplibre.android.maps.MapLibreMap.CancelableCallback
 import org.maplibre.android.maps.OnMapReadyCallback
 import org.maplibre.android.maps.Style
 import org.maplibre.geojson.Feature
@@ -55,15 +55,13 @@ import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.style.expressions.Expression
 import retrofit2.Retrofit
 import retrofit2.converter.protobuf.ProtoConverterFactory
-import java.io.IOException
-
 
 class MainActivity : AppCompatActivity(),
     OnMapReadyCallback,
     RouteDrawer,
     TurismoActionHandler,
     DetalleTurismoNavigator,
-    MapMover { // Las interfaces MapMover, RouteDrawer, etc. se asumen importadas desde Interfaces.kt y MapMover.kt
+    MapMover {
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var mapView: MapView
@@ -80,6 +78,7 @@ class MainActivity : AppCompatActivity(),
     private var currentRouteSourceId: String? = null
     private var currentRouteLayerId: String? = null
     private var mapStyle: Style? = null
+    private var currentSelectedStopId: String? = null
     private val turismoMarkers = mutableListOf<Marker>()
 
     private val apiService: GtfsApiService by lazy {
@@ -143,6 +142,16 @@ class MainActivity : AppCompatActivity(),
                 showParaderosOnMap(nearbyStops)
             }
         }
+
+        sharedViewModel.selectedStopId.observe(this) { stopId ->
+            currentSelectedStopId = stopId
+            if (selectedRouteId != null && selectedDirectionId != null) {
+                val paraderosDeRuta = GtfsDataManager.getStopsForRoute(selectedRouteId!!, selectedDirectionId!!)
+                showParaderosOnMap(paraderosDeRuta)
+            } else {
+                sharedViewModel.nearbyStops.value?.let { showParaderosOnMap(it) }
+            }
+        }
     }
 
     private fun setupTabs() {
@@ -197,19 +206,16 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun handleParaderoClick(stopId: String) {
+        sharedViewModel.selectStop(stopId)
         GtfsDataManager.stops[stopId]?.let { stop ->
             centerMapOnPoint(stop.location.latitude, stop.location.longitude)
         }
-
         val routesForStop = GtfsDataManager.getRoutesForStop(stopId)
-
         if (routesForStop.isNotEmpty()) {
             Toast.makeText(this, "Mostrando rutas para el paradero $stopId", Toast.LENGTH_SHORT).show()
-
             if (supportFragmentManager.backStackEntryCount > 0) {
                 supportFragmentManager.popBackStack()
             }
-
             sharedViewModel.setRouteFilter(routesForStop)
             viewPager.setCurrentItem(2, true)
             bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
@@ -218,47 +224,53 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    // ****************************************************
-    // FIX: Sincronización de Animación y Fragmento (Elimina el corte)
-    // ****************************************************
     override fun showTurismoDetail(punto: PuntoTuristico) {
         if (!::map.isInitialized) {
             doShowTurismoDetail(punto)
             return
         }
-
-        // Inicia el zoom suave con un callback
         map.animateCamera(
             CameraUpdateFactory.newLatLngZoom(LatLng(punto.latitud, punto.longitud), 16.0),
-            1500, // Duración de 1.5s
+            1500,
             object : CancelableCallback {
                 override fun onCancel() {
-                    // Si se cancela, se ejecuta la lógica del fragmento
                     doShowTurismoDetail(punto)
                 }
 
                 override fun onFinish() {
-                    // FIX: UNA VEZ QUE EL ZOOM HA TERMINADO, se realiza la transición del BottomSheet.
+                    // --- ¡LÓGICA MEJORADA! ---
+                    // 1. Muestra el detalle del punto turístico.
                     doShowTurismoDetail(punto)
+                    // 2. Busca y muestra los paraderos alrededor de ese punto.
+                    findAndShowStopsAroundPoint(punto.latitud, punto.longitud)
                 }
             }
         )
     }
 
-    // Helper function para la lógica de mostrar el fragmento de detalle (se ejecuta DESPUÉS de la animación)
     private fun doShowTurismoDetail(punto: PuntoTuristico) {
-        // La lógica del fragmento se ejecuta aquí
         val fragment = DetalleTurismoFragment.newInstance(punto)
         findViewById<View>(R.id.bottom_sheet_content).visibility = View.GONE
         supportFragmentManager.beginTransaction()
             .replace(R.id.bottom_sheet, fragment)
             .addToBackStack("turismo_detail")
             .commitAllowingStateLoss()
-
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
     }
 
-    // Método para mostrar el detalle de una ruta (utilizado por RutasFragment)
+    // --- ¡NUEVA FUNCIÓN! ---
+    // Busca y muestra los paraderos en un radio de 500 metros desde un punto específico.
+    private fun findAndShowStopsAroundPoint(lat: Double, lon: Double) {
+        val paraderosCercanos = GtfsDataManager.stops.values
+            .map { stop ->
+                Pair(stop, distanceBetween(lat, lon, stop.location.latitude, stop.location.longitude))
+            }
+            .filter { it.second <= 500 } // 500 metros de radio
+            .map { it.first }
+
+        showParaderosOnMap(paraderosCercanos)
+    }
+
     fun showRouteDetail(routeId: String, directionId: Int) {
         val fragment = DetalleRutaFragment.newInstance(routeId, directionId)
         findViewById<View>(R.id.bottom_sheet_content).visibility = View.GONE
@@ -268,7 +280,6 @@ class MainActivity : AppCompatActivity(),
             .commit()
     }
 
-    // Implementación de DetalleTurismoNavigator: Mueve a Rutas y filtra
     override fun showRoutesForStop(stopId: String) {
         val routesForStop = GtfsDataManager.getRoutesForStop(stopId)
         sharedViewModel.setRouteFilter(routesForStop)
@@ -280,112 +291,68 @@ class MainActivity : AppCompatActivity(),
         supportFragmentManager.popBackStack("turismo_detail", 1)
     }
 
-    // Implementación de MapMover y TurismoActionHandler (Zoom suave para paraderos)
     override fun centerMapOnPoint(lat: Double, lon: Double) {
         if (::map.isInitialized) {
-            // Usa animateCamera para el zoom suave
             map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 16.0), 1500)
         }
     }
 
-
     private fun setupBusLayer(style: Style) {
-        // Definir un mapa de rutas a recursos de iconos
         val routeIcons = mapOf(
-            "467" to R.drawable.linea_2,
-            "468" to R.drawable.linea_3,
-            "469" to R.drawable.linea_4,
-            "470" to R.drawable.linea_6,
-            "471" to R.drawable.linea_7,
-            "472" to R.drawable.linea_8,
-            "954" to R.drawable.linea_7,
-            "478" to R.drawable.linea_14,
-            "477" to R.drawable.linea_14,
-            "473" to R.drawable.linea_10,
-            "476" to R.drawable.linea_13,
-            "474" to R.drawable.linea_13,
-            "475" to R.drawable.linea_13,
-            "466" to R.drawable.linea_1,
+            "467" to R.drawable.linea_2, "468" to R.drawable.linea_3, "469" to R.drawable.linea_4,
+            "470" to R.drawable.linea_6, "471" to R.drawable.linea_7, "472" to R.drawable.linea_8,
+            "954" to R.drawable.linea_7, "478" to R.drawable.linea_14, "477" to R.drawable.linea_14,
+            "473" to R.drawable.linea_10, "476" to R.drawable.linea_13, "474" to R.drawable.linea_13,
+            "475" to R.drawable.linea_13, "466" to R.drawable.linea_1,
         )
-
         try {
-            // Cargar el icono por defecto primero
             style.addImage("bus-icon-default", BitmapFactory.decodeResource(resources, R.drawable.ic_bus))
-
-            // Cargar los iconos específicos para cada ruta
             routeIcons.forEach { (routeId, resourceId) ->
                 try {
-                    val iconId = "bus-icon-$routeId"
-                    val bitmap = BitmapFactory.decodeResource(resources, resourceId)
-                    if (bitmap != null) {
-                        style.addImage(iconId, bitmap)
-                        Log.d("SetupBusLayer", "Icono cargado exitosamente para ruta $routeId")
-                    } else {
-                        Log.e("SetupBusLayer", "No se pudo cargar el bitmap para ruta $routeId")
-                    }
-                } catch (e: Exception) {
-                    Log.e("SetupBusLayer", "Error al cargar icono para ruta $routeId: ${e.message}")
-                }
+                    style.addImage("bus-icon-$routeId", BitmapFactory.decodeResource(resources, resourceId))
+                } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar icono para ruta $routeId: ${e.message}") }
             }
-        } catch (e: Exception) {
-            Log.e("SetupBusLayer", "Error al cargar los íconos: ${e.message}")
-        }
-
+        } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar los íconos: ${e.message}") }
         style.addSource(GeoJsonSource("bus-source"))
-
         val cases = routeIcons.keys.flatMap { routeId ->
-            listOf(
-                eq(get("routeId"), literal(routeId)),
-                literal("bus-icon-$routeId")
-            )
+            listOf(eq(get("routeId"), literal(routeId)), literal("bus-icon-$routeId"))
         }.toTypedArray()
-
         val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
             withProperties(
-                PropertyFactory.iconImage(
-                    switchCase(
-                        *cases,
-                        literal("bus-icon-default")
-                    )
-                ),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconImage(switchCase(*cases, literal("bus-icon-default"))),
+                PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
                 PropertyFactory.iconSize(0.5f),
-                PropertyFactory.iconOpacity(
-                    interpolate(
-                        linear(), zoom(),
-                        stop(11.99f, 0f),
-                        stop(12f, 1f)
-                    )
-                )
+                PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(11.99f, 0f), stop(12f, 1f)))
             )
         }
         style.addLayer(busLayer)
     }
 
-
     private fun setupParaderoLayer(style: Style) {
         try {
-            val paraderoBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_paradero)
-            style.addImage("paradero-icon", paraderoBitmap)
+            style.addImage("paradero-icon", BitmapFactory.decodeResource(resources, R.drawable.ic_paradero))
+            style.addImage("paradero-icon-selected", BitmapFactory.decodeResource(resources, R.drawable.ic_paradero_selected))
         } catch (e: Exception) {
-            Log.w("SetupParadero", "No se encontró 'ic_paradero.png'.")
+            Log.w("SetupParadero", "No se encontró 'ic_paradero.png' o 'ic_paradero_selected.png'.")
         }
         style.addSource(GeoJsonSource("paradero-source"))
-
         val paraderoLayer = SymbolLayer("paradero-layer", "paradero-source").apply {
             withProperties(
-                PropertyFactory.iconImage("paradero-icon"),
-                PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconIgnorePlacement(true),
-                PropertyFactory.iconSize(0.05f),
-                PropertyFactory.iconOpacity(
-                    interpolate(
-                        linear(), zoom(),
-                        stop(12.99f, 0f),
-                        stop(13f, 1f)
+                PropertyFactory.iconImage(
+                    switchCase(
+                        eq(get("selected"), literal(true)), literal("paradero-icon-selected"),
+                        literal("paradero-icon")
                     )
                 ),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconSize(
+                    switchCase(
+                        eq(get("selected"), literal(true)), literal(0.07f),
+                        literal(0.05f)
+                    )
+                ),
+                PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(12.99f, 0f), stop(13f, 1f))),
                 PropertyFactory.textField(get("stop_id")),
                 PropertyFactory.textSize(10f),
                 PropertyFactory.textColor(Color.BLACK),
@@ -411,6 +378,7 @@ class MainActivity : AppCompatActivity(),
             val point = Point.fromLngLat(stop.location.longitude, stop.location.latitude)
             val feature = Feature.fromGeometry(point)
             feature.addStringProperty("stop_id", stop.stopId)
+            feature.addBooleanProperty("selected", stop.stopId == currentSelectedStopId)
             feature
         }
         mapStyle?.getSourceAs<GeoJsonSource>("paradero-source")?.setGeoJson(FeatureCollection.fromFeatures(paraderoFeatures))
@@ -420,22 +388,18 @@ class MainActivity : AppCompatActivity(),
         clearDrawnElements()
         selectedRouteId = route.routeId
         selectedDirectionId = directionId
-
         val style = mapStyle ?: return
         val tripKey = "${route.routeId}_$directionId"
         val shapeId = GtfsDataManager.trips[tripKey]?.shapeId
-
         if (shapeId == null) {
-            Toast.makeText(this, "Trazado no disponible para esta ruta.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Trazado no disponible.", Toast.LENGTH_SHORT).show()
             return
         }
-
         val routePoints = GtfsDataManager.shapes[shapeId] ?: return
         val geoJsonString = """{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [${routePoints.joinToString { "[${it.longitude},${it.latitude}]" }}]}}"""
         val sourceId = "route-source-${route.routeId}-$directionId"
         style.addSource(GeoJsonSource(sourceId, geoJsonString))
         currentRouteSourceId = sourceId
-
         val layerId = "route-layer-${route.routeId}-$directionId"
         val routeLayer = LineLayer(layerId, sourceId).apply {
             withProperties(
@@ -447,10 +411,8 @@ class MainActivity : AppCompatActivity(),
         }
         style.addLayer(routeLayer)
         currentRouteLayerId = layerId
-
         val paraderosDeRuta = GtfsDataManager.getStopsForRoute(route.routeId, directionId)
         showParaderosOnMap(paraderosDeRuta)
-
         val bounds = LatLngBounds.Builder().includes(routePoints).build()
         map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100), 1500)
         updateBusMarkers()
@@ -460,14 +422,12 @@ class MainActivity : AppCompatActivity(),
         clearDrawnElements()
         selectedRouteId = null
         selectedDirectionId = null
+        sharedViewModel.selectStop(null)
         updateBusMarkers()
         Toast.makeText(this, "Mostrando buses cercanos", Toast.LENGTH_SHORT).show()
-
-        // Solo centramos el mapa en la ubicación del usuario si es requerido.
         if (recenterToUser) {
             requestFreshLocation()
         }
-
         sharedViewModel.nearbyStops.value?.let { showParaderosOnMap(it) }
     }
 
@@ -486,14 +446,10 @@ class MainActivity : AppCompatActivity(),
         val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_turismo)
         val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(originalBitmap, 80, 80, false)
         val icon = iconFactory.fromBitmap(scaledBitmap)
-
         DatosTurismo.puntosTuristicos.forEach { punto ->
             turismoMarkers.add(map.addMarker(
-                MarkerOptions()
-                    .position(LatLng(punto.latitud, punto.longitud))
-                    .title(punto.nombre)
-                    .snippet(punto.direccion)
-                    .icon(icon)
+                MarkerOptions().position(LatLng(punto.latitud, punto.longitud))
+                    .title(punto.nombre).snippet(punto.direccion).icon(icon)
             ))
         }
     }
@@ -512,10 +468,9 @@ class MainActivity : AppCompatActivity(),
             try {
                 val response = apiService.getVehiclePositions("chillan", "9f057ee0-3807-4340-aefa-17553326eec0")
                 if (response.isSuccessful) {
-                    val feed = response.body()
-                    if (feed != null) {
-                        lastFeedMessage = feed
-                        sharedViewModel.setFeedMessage(feed)
+                    response.body()?.let {
+                        lastFeedMessage = it
+                        sharedViewModel.setFeedMessage(it)
                     }
                     updateBusMarkers()
                 } else {
@@ -537,37 +492,27 @@ class MainActivity : AppCompatActivity(),
         val feed = lastFeedMessage ?: return
         val userLocation = map.locationComponent.lastKnownLocation
         val busFeatures = mutableListOf<Feature>()
-
         for (entity in feed.entityList) {
             if (entity.hasVehicle() && entity.vehicle.hasTrip() && entity.vehicle.hasPosition()) {
                 val vehicle = entity.vehicle
                 val trip = vehicle.trip
                 val position = vehicle.position
                 var shouldShow = false
-
                 if (selectedRouteId != null) {
                     if (selectedRouteId == trip.routeId && selectedDirectionId == trip.directionId) {
                         shouldShow = true
                     }
                 } else {
                     if (userLocation != null) {
-                        val distanceToUser = distanceBetween(
-                            userLocation.latitude, userLocation.longitude,
-                            position.latitude.toDouble(), position.longitude.toDouble()
-                        )
-                        if (distanceToUser <= 1000) {
+                        if (distanceBetween(userLocation.latitude, userLocation.longitude, position.latitude.toDouble(), position.longitude.toDouble()) <= 1000) {
                             shouldShow = true
                         }
-                    } else {
-                        shouldShow = false
                     }
                 }
-
                 if (shouldShow) {
                     val point = Point.fromLngLat(position.longitude.toDouble(), position.latitude.toDouble())
                     val feature = Feature.fromGeometry(point)
                     feature.addStringProperty("routeId", trip.routeId)
-                    Log.d("UpdateBusMarkers", "Agregando bus de ruta: ${trip.routeId}")
                     busFeatures.add(feature)
                 }
             }
@@ -592,33 +537,11 @@ class MainActivity : AppCompatActivity(),
         map.locationComponent.renderMode = RenderMode.COMPASS
     }
 
-    // Ciclo de vida (onStart, etc.)
-    override fun onStart() {
-        super.onStart()
-        mapView.onStart()
-    }
-    override fun onResume() {
-        super.onResume()
-        mapView.onResume()
-    }
-    override fun onPause() {
-        super.onPause()
-        mapView.onPause()
-    }
-    override fun onStop() {
-        super.onStop()
-        mapView.onStop()
-    }
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        mapView.onSaveInstanceState(outState)
-    }
-    override fun onLowMemory() {
-        super.onLowMemory()
-        mapView.onLowMemory()
-    }
-    override fun onDestroy() {
-        super.onDestroy()
-        mapView.onDestroy()
-    }
+    override fun onStart() { super.onStart(); mapView.onStart() }
+    override fun onResume() { super.onResume(); mapView.onResume() }
+    override fun onPause() { super.onPause(); mapView.onPause() }
+    override fun onStop() { super.onStop(); mapView.onStop() }
+    override fun onSaveInstanceState(outState: Bundle) { super.onSaveInstanceState(outState); mapView.onSaveInstanceState(outState) }
+    override fun onLowMemory() { super.onLowMemory(); mapView.onLowMemory() }
+    override fun onDestroy() { super.onDestroy(); mapView.onDestroy() }
 }
