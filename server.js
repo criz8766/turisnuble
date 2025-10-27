@@ -8,10 +8,8 @@ const GtfsRealtimeBindings = require('gtfs-realtime-bindings');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Obtenemos nuestros "secretos" de las variables de entorno
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 const apiToken = process.env.GTFS_RT_TOKEN;
-
 const GTFS_RT_URL = `https://datamanager.dtpr.transapp.cl/data/gtfs-rt/chillan.proto?apikey=${apiToken}`;
 
 // --- 3. Inicializar Firebase ---
@@ -25,7 +23,14 @@ try {
 
 const db = admin.firestore();
 
-// --- 4. La Función que hace el Trabajo (VERSIÓN CORREGIDA) ---
+// --- ¡INICIO DE LA CORRECCIÓN! ---
+// Añadimos esta línea para decirle a Firestore
+// que ignore campos 'undefined' si se nos escapa alguno.
+db.settings({ ignoreUndefinedProperties: true });
+// --- FIN DE LA CORRECCIÓN ---
+
+
+// --- 4. La Función que hace el Trabajo ---
 async function fetchGtfsRealtimeData() {
   console.log("Iniciando la obtención de datos GTFS-RT...");
 
@@ -40,22 +45,18 @@ async function fetchGtfsRealtimeData() {
   const vehiclePositions = {};
   feed.entity.forEach((entity) => {
 
-    // --- INICIO DE LA CORRECIÓN (Error 1) ---
-    // Hacemos el código "defensivo".
-    // Solo procesamos la entidad si tiene:
-    // 1. Un objeto 'vehicle'
-    // 2. Un objeto 'position' dentro de 'vehicle'
     if (entity.vehicle && entity.vehicle.position) {
       vehiclePositions[entity.id] = {
-        // Usamos "optional chaining" (?.)
-        // Si 'trip' no existe, guardará 'null', lo cual está bien.
         latitude: entity.vehicle.position.latitude,
         longitude: entity.vehicle.position.longitude,
-        tripId: entity.vehicle.trip?.tripId,
-        routeId: entity.vehicle.trip?.routeId,
+
+        // --- ¡INICIO DE LA CORRECCIÓN! ---
+        // Si 'tripId' es 'undefined', guárdalo como 'null'
+        tripId: entity.vehicle.trip?.tripId || null,
+        routeId: entity.vehicle.trip?.routeId || null
+        // --- FIN DE LA CORRECCIÓN ---
       };
     }
-    // --- FIN DE LA CORRECIÓN ---
   });
 
   const docRef = db.collection("realtime").doc("vehiclePositions");
@@ -69,31 +70,20 @@ async function fetchGtfsRealtimeData() {
   return message;
 }
 
-// --- 5. El Servidor Web (VERSIÓN CORREGIDA) ---
-// Esta ruta es la que visita UptimeRobot
+// --- 5. El Servidor Web ---
 app.get('/', async (req, res) => {
   console.log("¡Recibido ping de UptimeRobot!");
 
   try {
-    // Ejecutamos la función
     const result = await fetchGtfsRealtimeData();
-
-    // Le respondemos a UptimeRobot que todo salió bien
     res.status(200).send(`Proceso completado: ${result}`);
 
   } catch (error) {
-    // --- INICIO DE LA CORRECIÓN (Error 2) ---
-    // Si CUALQUIER cosa falla (la API 503, el parseo, etc.)...
     console.error("Error en el ciclo de fetch:", error.message);
-
-    // Le respondemos a UptimeRobot con un error, pero el servidor no se cae.
-    // UptimeRobot lo marcará como "down" pero lo volverá a intentar en 1 min.
     res.status(500).send(`ERROR: ${error.message}`);
-    // --- FIN DE LA CORRECIÓN ---
   }
 });
 
-// Le decimos al servidor que empiece a escuchar visitas
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
 });
