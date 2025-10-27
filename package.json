@@ -1,0 +1,15 @@
+{
+  "name": "turisnuble-gtfs-fetcher",
+  "version": "1.0.0",
+  "description": "Servidor para obtener datos de GTFS-RT y guardarlos en Firestore.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.1.1",
+    "axios": "^1.7.2",
+    "gtfs-realtime-bindings": "^1.1.2",
+    "express": "^4.19.2"
+  }
+}
