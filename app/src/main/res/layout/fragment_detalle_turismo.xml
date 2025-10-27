@@ -81,6 +81,15 @@
                     android:textColor="?android:attr/textColorSecondary"
                     tools:text="Arauco 505, Chillán" />
 
+                <Button
+                    android:id="@+id/btn_como_llegar"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Cómo Llegar a este punto"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="16dp" />
+
             </LinearLayout>
 
             <View

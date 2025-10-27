@@ -83,7 +83,7 @@ class MainActivity : AppCompatActivity(),
 
     private val apiService: GtfsApiService by lazy {
         Retrofit.Builder()
-            .baseUrl("https://datamanager.dtpr.transapp.cl/")
+            .baseUrl("https://turisnuble-api.onrender.com/")
             .addConverterFactory(ProtoConverterFactory.create())
             .build()
             .create(GtfsApiService::class.java)
@@ -502,7 +502,7 @@ class MainActivity : AppCompatActivity(),
         lifecycleScope.launch {
             while (isActive) {
                 fetchBusData()
-                delay(40000)
+                delay(20000) //
             }
         }
     }
@@ -510,7 +510,7 @@ class MainActivity : AppCompatActivity(),
     private fun fetchBusData() {
         lifecycleScope.launch {
             try {
-                val response = apiService.getVehiclePositions("chillan", "9f057ee0-3807-4340-aefa-17553326eec0")
+                val response = apiService.getVehiclePositions("chillan")
                 if (response.isSuccessful) {
                     response.body()?.let {
                         lastFeedMessage = it
@@ -593,6 +593,8 @@ class MainActivity : AppCompatActivity(),
         map.locationComponent.cameraMode = CameraMode.TRACKING
         map.locationComponent.renderMode = RenderMode.COMPASS
     }
+
+
 
     override fun onStart() { super.onStart(); mapView.onStart() }
     override fun onResume() { super.onResume(); mapView.onResume() }
