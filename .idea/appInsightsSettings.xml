@@ -8,10 +8,10 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="PLACEHOLDER" />
-                  <option name="mobileSdkAppId" value="" />
-                  <option name="projectId" value="" />
-                  <option name="projectNumber" value="" />
+                  <option name="appId" value="cl.example.turisnuble" />
+                  <option name="mobileSdkAppId" value="1:258321787270:android:26dd132c4251851c32a407" />
+                  <option name="projectId" value="turisnuble-328e3" />
+                  <option name="projectNumber" value="258321787270" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />
