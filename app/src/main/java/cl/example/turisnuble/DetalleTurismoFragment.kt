@@ -2,21 +2,20 @@ package cl.example.turisnuble
 
 import android.content.Context
 import android.os.Bundle
+import android.util.Log // <-- AÑADE ESTA IMPORTACIÓN
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button // <-- AÑADE ESTA IMPORTACIÓN
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import android.widget.Button
 import java.io.Serializable
 
-// Interfaz para interactuar con MainActivity para cambiar de pestaña y filtrar rutas.
-// Similar a como MainActivity maneja el detalle de una Ruta.
-
+// ... (el resto de la clase, companion object, onAttach, etc. sin cambios) ...
 class DetalleTurismoFragment : Fragment() {
 
     private var navigator: DetalleTurismoNavigator? = null
@@ -49,7 +48,6 @@ class DetalleTurismoFragment : Fragment() {
     ): View? {
         val view = inflater.inflate(R.layout.fragment_detalle_turismo, container, false)
 
-        // Usamos la anotación para suprimir la advertencia de serialización en Kotlin
         @Suppress("DEPRECATION")
         val puntoTuristico = arguments?.getSerializable(ARG_PUNTO_TURISTICO) as? PuntoTuristico
             ?: return view
@@ -59,16 +57,13 @@ class DetalleTurismoFragment : Fragment() {
             navigator?.hideDetailFragment()
         }
 
+        // --- AÑADIDO: Encontrar el botón ---
+        val btnComoLlegar: Button = view.findViewById(R.id.btn_como_llegar)
+
         // 1. Mostrar la información del punto turístico
         view.findViewById<ImageView>(R.id.imagen_punto_turistico).setImageResource(puntoTuristico.imagenId)
         view.findViewById<TextView>(R.id.nombre_punto_turistico).text = puntoTuristico.nombre
         view.findViewById<TextView>(R.id.direccion_punto_turistico).text = puntoTuristico.direccion
-
-        val btnComoLlegar: Button = view.findViewById(R.id.btn_como_llegar)
-        btnComoLlegar.setOnClickListener {
-            navigator?.onGetDirectionsClicked(puntoTuristico) // Llama a la función de MainActivity
-            navigator?.hideDetailFragment() // Cierra el detalle para ver el mapa
-        }
 
         // 2. Encontrar y mostrar los paraderos cercanos
         val nearbyStops = GtfsDataManager.getNearbyStops(puntoTuristico.latitud, puntoTuristico.longitud, 3)
@@ -93,6 +88,14 @@ class DetalleTurismoFragment : Fragment() {
             recyclerView.adapter = adapter
         }
 
+        // --- AÑADIDO: Lógica del botón ---
+        btnComoLlegar.setOnClickListener {
+            Log.d("DetalleTurismo", "Botón 'Cómo Llegar' presionado para ${puntoTuristico.nombre}")
+            navigator?.onGetDirectionsClicked(puntoTuristico) // Llama a MainActivity
+            navigator?.hideDetailFragment() // Cierra este fragmento
+        }
+        // --- FIN AÑADIDO ---
+
         return view
     }
 
@@ -101,7 +104,7 @@ class DetalleTurismoFragment : Fragment() {
         navigator = null
     }
 
-    // Adaptador interno para la lista de paraderos cercanos (reutiliza item_paradero_cercano.xml)
+    // Adaptador interno (sin cambios)
     private inner class ParaderosCercanosAdapter(
         private val stops: List<GtfsStop>,
         private val onItemClick: (GtfsStop) -> Unit
@@ -110,7 +113,6 @@ class DetalleTurismoFragment : Fragment() {
         inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
             val stopIdChip: TextView = view.findViewById(R.id.stop_id_chip)
             val nombreParadero: TextView = view.findViewById(R.id.nombre_paradero)
-            // Este TextView se usará para mostrar el listado de líneas
             val lineasBuses: TextView = view.findViewById(R.id.llegadas_buses)
         }
 
@@ -125,25 +127,19 @@ class DetalleTurismoFragment : Fragment() {
             holder.stopIdChip.text = stop.stopId
             holder.nombreParadero.text = stop.name
 
-            // Obtenemos las rutas que pasan por este paradero
             val routesInfo = GtfsDataManager.getRoutesForStop(stop.stopId)
-
-            // Formateamos la información de las rutas
             val routesText = if (routesInfo.isNotEmpty()) {
                 routesInfo
-                    .distinctBy { it.route.shortName } // Solo mostramos cada línea una vez
+                    .distinctBy { it.route.shortName }
                     .sortedBy { it.route.shortName }
                     .joinToString(" | ") { displayRoute ->
                         val shortName = displayRoute.route.shortName
-                        // Lógica para mostrar el nombre de la línea consistentemente
                         if (shortName == "13A" || shortName == "13B") "Línea 13" else "Línea $shortName"
                     }
             } else {
                 "No hay rutas disponibles"
             }
-
             holder.lineasBuses.text = "Rutas: $routesText"
-
             holder.itemView.setOnClickListener {
                 onItemClick(stop)
             }
