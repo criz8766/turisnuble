@@ -21,6 +21,7 @@ interface TurismoActionHandler {
 interface DetalleTurismoNavigator {
     fun showRoutesForStop(stopId: String)
     fun hideDetailFragment()
+    fun onGetDirectionsClicked(punto: PuntoTuristico)
 }
 
 // ...y cualquier otra interfaz que necesites compartir entre Fragments y Activities

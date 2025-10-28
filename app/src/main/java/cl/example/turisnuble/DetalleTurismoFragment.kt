@@ -11,6 +11,7 @@ import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import android.widget.Button
 import java.io.Serializable
 
 // Interfaz para interactuar con MainActivity para cambiar de pestaña y filtrar rutas.
@@ -62,6 +63,12 @@ class DetalleTurismoFragment : Fragment() {
         view.findViewById<ImageView>(R.id.imagen_punto_turistico).setImageResource(puntoTuristico.imagenId)
         view.findViewById<TextView>(R.id.nombre_punto_turistico).text = puntoTuristico.nombre
         view.findViewById<TextView>(R.id.direccion_punto_turistico).text = puntoTuristico.direccion
+
+        val btnComoLlegar: Button = view.findViewById(R.id.btn_como_llegar)
+        btnComoLlegar.setOnClickListener {
+            navigator?.onGetDirectionsClicked(puntoTuristico) // Llama a la función de MainActivity
+            navigator?.hideDetailFragment() // Cierra el detalle para ver el mapa
+        }
 
         // 2. Encontrar y mostrar los paraderos cercanos
         val nearbyStops = GtfsDataManager.getNearbyStops(puntoTuristico.latitud, puntoTuristico.longitud, 3)

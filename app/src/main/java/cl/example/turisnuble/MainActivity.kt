@@ -99,6 +99,103 @@ class MainActivity : AppCompatActivity(),
             }
         }
 
+    override fun onGetDirectionsClicked(punto: PuntoTuristico) {
+        // 1. Verificar permiso y obtener ubicación actual del usuario
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Se necesita permiso de ubicación para 'Cómo llegar'", Toast.LENGTH_LONG).show()
+            requestLocationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            return
+        }
+
+        Log.d("Directions", "Buscando ruta para ${punto.nombre}")
+        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
+            .addOnSuccessListener { location: Location? ->
+                if (location == null) {
+                    Toast.makeText(this, "No se pudo obtener tu ubicación actual", Toast.LENGTH_LONG).show()
+                    return@addOnSuccessListener
+                }
+
+                // 2. Encontrar TODOS los paraderos en un radio de 500m (Puntos A y B)
+                val stopsNearA = findAllNearbyStops(location.latitude, location.longitude, 500f)
+                val stopsNearB = findAllNearbyStops(punto.latitud, punto.longitud, 500f)
+
+                if (stopsNearA.isEmpty() || stopsNearB.isEmpty()) {
+                    Toast.makeText(this, "No se encontraron paraderos cercanos a ti o al destino", Toast.LENGTH_LONG).show()
+                    return@addOnSuccessListener
+                }
+
+                Log.d("Directions", "Buscando conexión entre ${stopsNearA.size} paraderos de A y ${stopsNearB.size} paraderos de B")
+
+                // 3. Variables para guardar la mejor ruta encontrada
+                var bestRouteFound: DisplayRouteInfo? = null
+                var bestStopA: GtfsStop? = null
+                var bestStopB: GtfsStop? = null
+
+                // 4. Iterar para encontrar la primera conexión válida
+                // (Como las listas están ordenadas por distancia, la primera que encontremos será la más cercana)
+                for (stopA in stopsNearA) {
+                    val routesA = GtfsDataManager.getRoutesForStop(stopA.stopId)
+                    val routeSetA = routesA.map { it.route.routeId to it.directionId }.toSet()
+
+                    for (stopB in stopsNearB) {
+                        if (stopA.stopId == stopB.stopId) continue // Saltar si es el mismo paradero
+
+                        val routesB = GtfsDataManager.getRoutesForStop(stopB.stopId)
+                        val commonRoutes = routesB.filter { routeSetA.contains(it.route.routeId to it.directionId) }
+
+                        // 4b. Validar la secuencia A -> B para las rutas comunes
+                        for (commonRoute in commonRoutes) {
+                            val stopSequence = GtfsDataManager.getStopsForRoute(commonRoute.route.routeId, commonRoute.directionId)
+                            val indexA = stopSequence.indexOfFirst { it.stopId == stopA.stopId }
+                            val indexB = stopSequence.indexOfFirst { it.stopId == stopB.stopId }
+
+                            if (indexA != -1 && indexB != -1 && indexA < indexB) {
+                                // ¡Ruta válida! A (usuario) viene ANTES que B (turismo)
+                                bestRouteFound = commonRoute
+                                bestStopA = stopA
+                                bestStopB = stopB
+                                break // Salir del bucle de rutas comunes
+                            }
+                        }
+                        if (bestRouteFound != null) break // Salir del bucle de paraderos B
+                    }
+                    if (bestRouteFound != null) break // Salir del bucle de paraderos A
+                }
+
+                // 5. Actuar según el resultado
+                if (bestRouteFound != null && bestStopA != null) {
+                    // ¡Éxito!
+                    val route = bestRouteFound.route
+                    val directionId = bestRouteFound.directionId
+
+                    Log.d("Directions", "Ruta válida encontrada: ${route.shortName} (Desde ${bestStopA.name} hasta ${bestStopB?.name})")
+                    Toast.makeText(this, "Toma la Línea ${route.shortName} en ${bestStopA.name}", Toast.LENGTH_LONG).show()
+
+                    // 6. REUTILIZAR tu función 'drawRoute'
+                    drawRoute(route, directionId)
+
+                    // 7. Seleccionar el paradero inicial (A) para resaltarlo
+                    sharedViewModel.selectStop(bestStopA.stopId)
+
+                } else {
+                    // No se encontró ruta directa
+                    Toast.makeText(this, "No se encontró una ruta de bus directa", Toast.LENGTH_LONG).show()
+                    Log.d("Directions", "No se encontró ruta válida A -> B en el radio de 500m.")
+
+                    // Mueve el mapa para mostrar el paradero A más cercano y el B más cercano
+                    val bounds = LatLngBounds.Builder()
+                        .include(LatLng(stopsNearA.first().location.latitude, stopsNearA.first().location.longitude))
+                        .include(LatLng(stopsNearB.first().location.latitude, stopsNearB.first().location.longitude))
+                        .build()
+                    map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 150), 1000)
+                }
+            }
+            .addOnFailureListener {
+                Log.e("Directions", "Error al obtener ubicación", it)
+                Toast.makeText(this, "Error al obtener ubicación", Toast.LENGTH_LONG).show()
+            }
+    }
+
     override fun displayStopAndNearbyStops(stop: GtfsStop) {
         // 1. Limpia cualquier línea de ruta dibujada
         clearDrawnElements()
@@ -185,6 +282,24 @@ class MainActivity : AppCompatActivity(),
                 sharedViewModel.nearbyStops.value?.let { showParaderosOnMap(it) }
             }
         }
+    }
+
+    private fun findAllNearbyStops(lat: Double, lon: Double, radiusInMeters: Float = 500f): List<GtfsStop> {
+        return GtfsDataManager.stops.values
+            .map { stop ->
+                Pair(stop, distanceBetween(lat, lon, stop.location.latitude, stop.location.longitude))
+            }
+            .filter { it.second <= radiusInMeters } // Filtra por radio
+            .sortedBy { it.second } // Ordena por distancia
+            .map { it.first } // Devuelve la lista de paraderos
+    }
+
+    private fun findNearestStop(lat: Double, lon: Double): GtfsStop? {
+        // Usamos .minByOrNull para encontrar el paradero con la distancia mínima
+        return GtfsDataManager.stops.values
+            .minByOrNull { stop ->
+                distanceBetween(lat, lon, stop.location.latitude, stop.location.longitude)
+            }
     }
 
     private fun setupTabs() {
@@ -412,6 +527,7 @@ class MainActivity : AppCompatActivity(),
         }
         mapStyle?.getSourceAs<GeoJsonSource>("paradero-source")?.setGeoJson(FeatureCollection.fromFeatures(paraderoFeatures))
     }
+
 
     override fun drawRoute(route: GtfsRoute, directionId: Int) {
         clearDrawnElements()
