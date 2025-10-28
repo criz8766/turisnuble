@@ -1,5 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Turisnuble</string>
-    <!-- TODO: Remove or change this placeholder text -->
-    <string name="hello_blank_fragment">Hello blank fragment</string>
+    <string name="app_name">Transporte y Turismo</string>
+
+    <!-- Navigation -->
+    <string name="back_button">Volver</string>
+    <string name="close_button">Cerrar</string>
+
+    <!-- Tabs -->
+    <string name="tab_routes">Rutas</string>
+    <string name="tab_nearby">Cercanos</string>
+    <string name="tab_tourism">Turismo</string>
+
+    <!-- Actions -->
+    <string name="action_center_location">Centrar en mi ubicación</string>
+    <string name="action_show_nearby">Mostrar buses cercanos</string>
+    <string name="action_how_to_get">Cómo Llegar a este punto</string>
+
+    <!-- Empty states -->
+    <string name="empty_routes_title">No hay rutas disponibles</string>
+    <string name="empty_routes_message">Intenta buscar en otra ubicación</string>
+    <string name="empty_stops_title">No hay paraderos cercanos</string>
+    <string name="empty_stops_message">Mueve el mapa para buscar en otra área</string>
+    <string name="empty_tourism_title">No hay puntos turísticos</string>
+    <string name="empty_tourism_message">Explora el mapa para descubrir lugares</string>
+    <string name="empty_nearby_stops">No se encontraron paraderos de bus cercanos para este punto.</string>
+
+    <!-- Loading -->
+    <string name="loading_routes">Cargando rutas</string>
+    <string name="loading_stops">Cargando paraderos cercanos</string>
+    <string name="loading_tourism">Cargando puntos turísticos</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_map">Mapa interactivo de transporte y turismo</string>
+    <string name="cd_drag_handle">Arrastrar para expandir o contraer</string>
+    <string name="cd_route_icon">Icono de ruta de transporte</string>
+    <string name="cd_tourism_image">Imagen del punto turístico</string>
+    <string name="cd_location_icon">Icono de ubicación</string>
+    <string name="cd_stop_id">Identificador del paradero</string>
+    <string name="cd_clear_selection">Icono de limpiar selección</string>
+
+    <!-- Sections -->
+    <string name="section_nearby_stops">Paraderos Cercanos</string>
+    <string name="section_route_details">Detalle de Ruta</string>
+    <string name="section_tourism_details">Detalle Turístico</string>
 </resources>

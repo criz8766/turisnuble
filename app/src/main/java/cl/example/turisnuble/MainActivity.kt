@@ -396,40 +396,34 @@ class MainActivity : AppCompatActivity(),
 
     // --- setupBusLayer (Corregido) ---
     private fun setupBusLayer(style: Style) {
-        if (style.getSource("bus-source") == null) {
-            style.addSource(GeoJsonSource("bus-source"))
-        }
-        if (style.getLayer("bus-layer") == null) {
-            val routeIcons = mapOf(
-                "467" to R.drawable.linea_2, "468" to R.drawable.linea_3, "469" to R.drawable.linea_4,
-                "470" to R.drawable.linea_6, "471" to R.drawable.linea_7, "472" to R.drawable.linea_8,
-                "954" to R.drawable.linea_7, "478" to R.drawable.linea_14, "477" to R.drawable.linea_14,
-                "473" to R.drawable.linea_10, "476" to R.drawable.linea_13, "474" to R.drawable.linea_13,
-                "475" to R.drawable.linea_13, "466" to R.drawable.linea_1,
+        val routeIcons = mapOf(
+            "467" to R.drawable.linea_2, "468" to R.drawable.linea_3, "469" to R.drawable.linea_4,
+            "470" to R.drawable.linea_6, "471" to R.drawable.linea_7, "472" to R.drawable.linea_8,
+            "954" to R.drawable.linea_7, "478" to R.drawable.linea_14, "477" to R.drawable.linea_14,
+            "473" to R.drawable.linea_10, "476" to R.drawable.linea_13, "474" to R.drawable.linea_13,
+            "475" to R.drawable.linea_13, "466" to R.drawable.linea_1,
+        )
+        try {
+            style.addImage("bus-icon-default", BitmapFactory.decodeResource(resources, R.drawable.ic_bus))
+            routeIcons.forEach { (routeId, resourceId) ->
+                try {
+                    style.addImage("bus-icon-$routeId", BitmapFactory.decodeResource(resources, resourceId))
+                } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar icono para ruta $routeId: ${e.message}") }
+            }
+        } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar los íconos: ${e.message}") }
+        style.addSource(GeoJsonSource("bus-source"))
+        val cases = routeIcons.keys.flatMap { routeId ->
+            listOf(eq(get("routeId"), literal(routeId)), literal("bus-icon-$routeId"))
+        }.toTypedArray()
+        val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
+            withProperties(
+                PropertyFactory.iconImage(switchCase(*cases, literal("bus-icon-default"))),
+                PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconSize(0.5f),
+                PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(11.99f, 0f), stop(12f, 1f)))
             )
-            val cases = routeIcons.keys.flatMap { routeId ->
-                listOf(eq(get("routeId"), literal(routeId)), literal("bus-icon-$routeId"))
-            }.toTypedArray()
-
-            val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
-                withProperties(
-                    PropertyFactory.iconImage(switchCase(*cases, literal("bus-icon-default"))),
-                    PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
-                    PropertyFactory.iconSize(
-                        interpolate(linear(), zoom(), stop(12f, 0.5f), stop(16f, 0.8f))
-                    ),
-                    PropertyFactory.iconRotate(toNumber(get("bearing"))),
-                    PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
-                    PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(11.99f, 0f), stop(12f, 1f)))
-                )
-            }
-            val paraderoLayerId = "paradero-layer"
-            if (style.getLayer(paraderoLayerId) != null) {
-                style.addLayerBelow(busLayer, paraderoLayerId) // Dibuja buses debajo de paraderos
-            } else {
-                style.addLayer(busLayer)
-            }
         }
+        style.addLayer(busLayer)
     }
 
 

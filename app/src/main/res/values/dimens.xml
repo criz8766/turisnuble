@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Spacing -->
+    <dimen name="spacing_xs">4dp</dimen>
+    <dimen name="spacing_small">8dp</dimen>
+    <dimen name="spacing_medium">16dp</dimen>
+    <dimen name="spacing_large">24dp</dimen>
+    <dimen name="spacing_xl">32dp</dimen>
+
+    <!-- Card dimensions -->
+    <dimen name="card_corner_radius">12dp</dimen>
+    <dimen name="card_elevation">2dp</dimen>
+    <dimen name="card_margin_horizontal">16dp</dimen>
+    <dimen name="card_margin_vertical">8dp</dimen>
+
+    <!-- Touch targets -->
+    <dimen name="min_touch_target">48dp</dimen>
+    <dimen name="list_item_min_height">56dp</dimen>
+    <dimen name="list_item_large_min_height">72dp</dimen>
+
+    <!-- Icon sizes -->
+    <dimen name="icon_size_small">20dp</dimen>
+    <dimen name="icon_size_medium">24dp</dimen>
+    <dimen name="icon_size_large">48dp</dimen>
+
+    <!-- Text sizes -->
+    <dimen name="text_size_caption">12sp</dimen>
+    <dimen name="text_size_body">14sp</dimen>
+    <dimen name="text_size_body_large">16sp</dimen>
+    <dimen name="text_size_title">18sp</dimen>
+    <dimen name="text_size_headline">24sp</dimen>
+
+    <!-- Chip dimensions -->
+    <dimen name="chip_corner_radius">8dp</dimen>
+    <dimen name="chip_padding_horizontal">12dp</dimen>
+    <dimen name="chip_padding_vertical">6dp</dimen>
+
+    <!-- Image dimensions -->
+    <dimen name="image_thumbnail_size">100dp</dimen>
+    <dimen name="image_thumbnail_large">120dp</dimen>
+    <dimen name="image_hero_height">280dp</dimen>
+</resources>

@@ -1,39 +1,71 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Converted to CoordinatorLayout with AppBarLayout for collapsing toolbar effect -->
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="?android:colorBackground">
 
-    <FrameLayout
+    <!-- Material AppBarLayout with elevation -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/app_bar_layout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="16dp">
+        android:background="?attr/colorSurface"
+        app:elevation="4dp">
 
-        <ImageButton
-            android:id="@+id/back_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:src="?attr/homeAsUpIndicator"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:layout_gravity="start|center_vertical"
-            android:contentDescription="Volver" />
+        <!-- Added FrameLayout to hold both toolbar and back button -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize">
 
-        <TextView
-            android:id="@+id/route_name_header"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            tools:text="Línea 3 - Ida" />
-    </FrameLayout>
+            <!-- Material Toolbar -->
+            <com.google.android.material.appbar.MaterialToolbar
+                android:id="@+id/toolbar"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                app:titleCentered="true">
 
+                <TextView
+                    android:id="@+id/route_name_header"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorOnSurface"
+                    tools:text="Línea 3 - Ida" />
+
+            </com.google.android.material.appbar.MaterialToolbar>
+
+            <!-- Restored back_button ImageButton for Kotlin compatibility -->
+            <ImageButton
+                android:id="@+id/back_button"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="start|center_vertical"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="?attr/homeAsUpIndicator"
+                android:contentDescription="Volver"
+                android:padding="12dp" />
+
+        </FrameLayout>
+
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <!-- Enhanced RecyclerView with scroll behavior -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recycler_view_paraderos"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior"
+        android:clipToPadding="false"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:scrollbars="vertical"
+        android:contentDescription="Lista de paraderos de la ruta"
         tools:listitem="@layout/item_paradero_detalle" />
 
-</LinearLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

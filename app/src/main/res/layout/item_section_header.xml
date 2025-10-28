@@ -1,14 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/section_header_text"
+<!-- Enhanced section header with Material Design styling -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:paddingStart="16dp"
-    android:paddingTop="16dp"
-    android:paddingEnd="16dp"
-    android:paddingBottom="8dp"
-    android:textSize="14sp"
-    android:textStyle="bold"
-    android:textColor="?android:textColorSecondary"
-    android:background="?android:colorBackground"
-    android:text="Sección"/>
+    android:orientation="vertical"
+    android:background="?android:colorBackground">
+
+    <TextView
+        android:id="@+id/section_header_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="20dp"
+        android:paddingTop="20dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="12dp"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:textColor="?attr/colorPrimary"
+        android:textAllCaps="true"
+        android:letterSpacing="0.1"
+        android:text="Sección" />
+
+    <!-- Optional divider for visual separation -->
+    <View
+        android:id="@+id/section_divider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:background="?android:attr/listDivider"
+        android:visibility="gone" />
+
+</LinearLayout>
