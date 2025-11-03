@@ -10,20 +10,30 @@ import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import android.widget.Button // --- AÑADIDO --- Import para el Botón
 
 // FIX: Definición canónica de MapMover para todo el paquete.
 
 class DetalleRutaFragment : Fragment() {
 
     private var mapMover: MapMover? = null
+    private var paraderoActionHandler: ParaderoActionHandler? = null // --- AÑADIDO ---
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
+        // --- MODIFICADO --- Manejo de ambas interfaces
         if (context is MapMover) {
             mapMover = context
         } else {
             throw RuntimeException("$context must implement MapMover")
         }
+
+        if (context is ParaderoActionHandler) {
+            paraderoActionHandler = context
+        } else {
+            throw RuntimeException("$context must implement ParaderoActionHandler")
+        }
+        // --- FIN MODIFICACIÓN ---
     }
 
     override fun onCreateView(
@@ -53,10 +63,19 @@ class DetalleRutaFragment : Fragment() {
 
             val paraderos = GtfsDataManager.getStopsForRoute(routeId, directionId)
 
-            recyclerView.adapter = ParaderosDetalleAdapter(paraderos) { paraderoSeleccionado ->
-                // Al hacer clic, le pedimos a MainActivity que mueva el mapa
-                mapMover?.centerMapOnPoint(paraderoSeleccionado.location.latitude, paraderoSeleccionado.location.longitude)
-            }
+            // --- MODIFICADO --- Creación del adapter
+            recyclerView.adapter = ParaderosDetalleAdapter(
+                paraderos,
+                onItemClick = { paraderoSeleccionado ->
+                    // Al hacer clic, le pedimos a MainActivity que mueva el mapa
+                    mapMover?.centerMapOnPoint(paraderoSeleccionado.location.latitude, paraderoSeleccionado.location.longitude)
+                },
+                onGetDirectionsClick = { paraderoSeleccionado ->
+                    // Al hacer clic en el botón, llamamos a la interfaz de "Cómo Llegar"
+                    paraderoActionHandler?.onGetDirectionsToStop(paraderoSeleccionado)
+                }
+            )
+            // --- FIN MODIFICACIÓN ---
         }
 
         backButton.setOnClickListener {
@@ -69,6 +88,7 @@ class DetalleRutaFragment : Fragment() {
     override fun onDetach() {
         super.onDetach()
         mapMover = null
+        paraderoActionHandler = null // --- AÑADIDO ---
     }
 
     companion object {
@@ -83,15 +103,18 @@ class DetalleRutaFragment : Fragment() {
     }
 }
 
+// --- MODIFICADO --- El Adapter ahora acepta dos listeners
 class ParaderosDetalleAdapter(
     private val paraderos: List<GtfsStop>,
-    private val onItemClick: (GtfsStop) -> Unit
+    private val onItemClick: (GtfsStop) -> Unit,
+    private val onGetDirectionsClick: (GtfsStop) -> Unit // --- AÑADIDO ---
 ) :
     RecyclerView.Adapter<ParaderosDetalleAdapter.ParaderoViewHolder>() {
 
     class ParaderoViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val stopSequence: TextView = view.findViewById(R.id.stop_sequence)
         val stopName: TextView = view.findViewById(R.id.stop_name)
+        val getDirectionsButton: Button = view.findViewById(R.id.btnGetDirectionsToStop) // --- AÑADIDO ---
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ParaderoViewHolder {
@@ -106,9 +129,16 @@ class ParaderosDetalleAdapter(
         holder.stopSequence.text = paradero.stopId
         holder.stopName.text = paradero.name
 
+        // Clic en todo el item
         holder.itemView.setOnClickListener {
             onItemClick(paradero)
         }
+
+        // --- AÑADIDO --- Clic solo en el botón
+        holder.getDirectionsButton.setOnClickListener {
+            onGetDirectionsClick(paradero)
+        }
+        // --- FIN ---
     }
 
     override fun getItemCount() = paraderos.size

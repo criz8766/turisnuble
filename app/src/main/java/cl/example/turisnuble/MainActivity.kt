@@ -41,6 +41,8 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.annotations.Marker
 import org.maplibre.android.annotations.MarkerOptions
+// --- IMPORTACIÓN AÑADIDA PARA 3D ---
+import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -70,7 +72,8 @@ class MainActivity : AppCompatActivity(),
     RouteDrawer,
     TurismoActionHandler,
     DetalleTurismoNavigator,
-    MapMover {
+    MapMover,
+    ParaderoActionHandler {
 
     // --- Variables (sin cambios) ---
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -91,6 +94,13 @@ class MainActivity : AppCompatActivity(),
     private var currentSelectedStopId: String? = null
     private val turismoMarkers = mutableListOf<Marker>()
     private var peekHeightInPixels: Int = 0
+
+    // --- VARIABLES AÑADIDAS PARA 3D ---
+    private lateinit var mapStyleFab: FloatingActionButton
+    private val style2D = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+    private val style3D = "https://tiles.openfreemap.org/styles/3d"
+    private var is3D = false
+    // --- FIN VARIABLES 3D ---
 
     private var listMaxHeight: Int = 0
     private var detailMaxHeight: Int = 0
@@ -116,6 +126,151 @@ class MainActivity : AppCompatActivity(),
                 findAndShowStopsAroundPoint(-36.606, -72.102)
             }
         }
+
+
+    // --- LÓGICA DE "CÓMO LLEGAR" (SIN CAMBIOS) ---
+    override fun onGetDirectionsToStop(stop: GtfsStop) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Se necesita permiso de ubicación para 'Cómo llegar'", Toast.LENGTH_LONG).show()
+            requestLocationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            return
+        }
+
+        Log.d("Directions", "Buscando MEJOR ruta para Paradero ${stop.name} (${stop.stopId})")
+        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
+            .addOnSuccessListener { location: Location? ->
+                if (location == null) {
+                    Toast.makeText(this, "No se pudo obtener tu ubicación actual", Toast.LENGTH_LONG).show()
+                    return@addOnSuccessListener
+                }
+
+                val userLat = location.latitude
+                val userLon = location.longitude
+                val destLat = stop.location.latitude
+                val destLon = stop.location.longitude
+
+                // 1. Búsqueda con radio flexible para el usuario (Origen A)
+                val originSearchRadii = listOf(500f, 1000f, 2500f) // 500m, 1km, 2.5km
+                var stopsNearA: List<Pair<GtfsStop, Float>> = emptyList() // Guardamos la distancia
+
+                Log.d("Directions", "Iniciando búsqueda de paraderos (A)...")
+                for (radius in originSearchRadii) {
+                    stopsNearA = GtfsDataManager.stops.values
+                        .map { s -> Pair(s, distanceBetween(userLat, userLon, s.location.latitude, s.location.longitude)) }
+                        .filter { it.second <= radius }
+                        .sortedBy { it.second } // Ordenados por distancia
+                    if (stopsNearA.isNotEmpty()) {
+                        Log.d("Directions", "Paraderos (A) encontrados a ${radius}m (${stopsNearA.size} paraderos)")
+                        break
+                    }
+                }
+
+                if (stopsNearA.isEmpty()) {
+                    Log.w("Directions", "No se encontraron paraderos (A) cerca del usuario (radio max ${originSearchRadii.last()}m)")
+                    Toast.makeText(this, "No se encontraron paraderos cercanos a tu ubicación (radio max 2.5km)", Toast.LENGTH_LONG).show()
+                    return@addOnSuccessListener
+                }
+
+                // 2. Búsqueda con radio flexible para el destino (Destino B)
+                val destSearchRadii = listOf(500f, 1000f, 2500f)
+                var stopsNearB: List<Pair<GtfsStop, Float>> = emptyList() // Guardamos la distancia
+
+                Log.d("Directions", "Iniciando búsqueda de paraderos (B) cerca de ${stop.name}...")
+                for (radius in destSearchRadii) {
+                    stopsNearB = GtfsDataManager.stops.values
+                        .map { s -> Pair(s, distanceBetween(destLat, destLon, s.location.latitude, s.location.longitude)) }
+                        .filter { it.second <= radius }
+                        .sortedBy { it.second } // Ordenados por distancia
+                    if (stopsNearB.isNotEmpty()) {
+                        Log.d("Directions", "Paraderos (B) encontrados a ${radius}m del destino (${stopsNearB.size} paraderos)")
+                        break
+                    }
+                }
+
+                if (stopsNearB.isEmpty()) {
+                    stopsNearB = listOf(Pair(stop, 0f)) // Failsafe
+                    Log.w("Directions", "No se encontraron paraderos cercanos a ${stop.name}, usando solo el paradero exacto.")
+                }
+
+                // 3. Lógica de búsqueda mejorada
+                val validRoutes = mutableListOf<Triple<DisplayRouteInfo, GtfsStop, GtfsStop>>()
+                var commonRoutesFound = false
+
+                val stopsNearB_RouteSets = stopsNearB.associate { (stopB, _) ->
+                    stopB.stopId to GtfsDataManager.getRoutesForStop(stopB.stopId)
+                }
+
+                for ((stopA, distA) in stopsNearA) {
+                    val routesA = GtfsDataManager.getRoutesForStop(stopA.stopId)
+                    val routeSetA = routesA.map { it.route.routeId to it.directionId }.toSet()
+
+                    for ((stopB, distB) in stopsNearB) {
+                        if (stopA.stopId == stopB.stopId) continue
+
+                        val routesB = stopsNearB_RouteSets[stopB.stopId] ?: emptyList()
+                        val commonRoutes = routesB.filter { routeSetA.contains(it.route.routeId to it.directionId) }
+
+                        if (commonRoutes.isNotEmpty()) {
+                            commonRoutesFound = true
+                        }
+
+                        for (commonRoute in commonRoutes) {
+                            val stopSequence = GtfsDataManager.getStopsForRoute(commonRoute.route.routeId, commonRoute.directionId)
+                            val indexA = stopSequence.indexOfFirst { it.stopId == stopA.stopId }
+                            val indexB = stopSequence.indexOfFirst { it.stopId == stopB.stopId }
+
+                            if (indexA != -1 && indexB != -1 && indexA < indexB) { // Valida A -> B
+                                validRoutes.add(Triple(commonRoute, stopA, stopB))
+                            }
+                        }
+                    }
+                }
+
+                // 4. Seleccionar la mejor ruta
+                if (validRoutes.isNotEmpty()) {
+                    Log.d("Directions", "Se encontraron ${validRoutes.size} rutas válidas. Seleccionando la 'mejor'...")
+
+                    val bestOption = validRoutes.minByOrNull { (route, stopA, stopB) ->
+                        val distA = stopsNearA.find { it.first.stopId == stopA.stopId }?.second ?: Float.MAX_VALUE
+                        val distB = stopsNearB.find { it.first.stopId == stopB.stopId }?.second ?: Float.MAX_VALUE
+                        distA + distB
+                    }!!
+
+                    val bestRouteFound = bestOption.first
+                    val bestStopA = bestOption.second
+                    val bestStopB = bestOption.third
+
+                    val route = bestRouteFound.route
+                    val directionId = bestRouteFound.directionId
+
+                    Log.d("Directions", "MEJOR RUTA: ${route.shortName} (Desde ${bestStopA.name} a ${bestStopB.name})")
+
+                    val toastMessage = if (bestStopB.stopId == stop.stopId) {
+                        "Toma la Línea ${route.shortName} en ${bestStopA.name}"
+                    } else {
+                        "Toma la Línea ${route.shortName} en ${bestStopA.name} y baja en ${bestStopB.name}"
+                    }
+                    Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
+
+                    hideDetailFragment()
+                    drawRouteSegment(route, directionId, bestStopA, bestStopB)
+                    sharedViewModel.selectStop(bestStopA.stopId)
+
+                } else {
+                    val toastMessage = if (commonRoutesFound) {
+                        "Se encontraron rutas, pero ninguna va en la dirección correcta (A -> B)"
+                    } else {
+                        "No se encontró una ruta de micro directa en los paraderos cercanos"
+                    }
+                    Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
+                    Log.d("Directions", "No se encontró NINGUNA ruta válida A -> B.")
+                }
+            }
+            .addOnFailureListener {
+                Log.e("Directions", "Error al obtener ubicación", it)
+                Toast.makeText(this, "Error al obtener ubicación", Toast.LENGTH_LONG).show()
+            }
+    }
 
     // --- displayStopAndNearbyStops (sin cambios) ---
     override fun displayStopAndNearbyStops(stop: GtfsStop) {
@@ -145,13 +300,12 @@ class MainActivity : AppCompatActivity(),
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
         val screenHeight = resources.displayMetrics.heightPixels
         bottomSheetBehavior.maxHeight = (screenHeight * 0.40).toInt()
-        // val peekHeightInPixels = (46 * resources.displayMetrics.density).toInt()
         peekHeightInPixels = (46 * resources.displayMetrics.density).toInt()
         bottomSheetBehavior.peekHeight = peekHeightInPixels
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
 
         setupTabs()
-        setupBottomSheetCallback()
+        setupBottomSheetCallback() // <-- Llama al callback para el padding dinámico
 
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
@@ -163,6 +317,13 @@ class MainActivity : AppCompatActivity(),
             sharedViewModel.selectStop(null)
             clearRoutes(recenterToUser = true)
         }
+
+        // --- CONEXIÓN DEL BOTÓN 3D AÑADIDA ---
+        mapStyleFab = findViewById(R.id.map_style_fab)
+        mapStyleFab.setOnClickListener {
+            toggleMapStyle()
+        }
+        // --- FIN CONEXIÓN 3D ---
 
         sharedViewModel.nearbyStops.observe(this) { nearbyStops ->
             if (selectedRouteId == null) {
@@ -218,105 +379,148 @@ class MainActivity : AppCompatActivity(),
         viewPager.isUserInputEnabled = false
     }
 
-    // --- setupBottomSheetCallback (sin cambios) ---
+    // --- setupBottomSheetCallback (CON LÓGICA DE PADDING) ---
     private fun setupBottomSheetCallback() {
-        // Asegura que el behavior esté inicializado
         if (!::bottomSheetBehavior.isInitialized) {
             val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
             bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
         }
 
-        // Añade el listener para el deslizamiento
         bottomSheetBehavior.addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
-
             override fun onStateChanged(bottomSheet: View, newState: Int) {
-                // Esta función se activa cuando el panel "termina" de moverse
                 if (!::map.isInitialized) return
-
                 var targetPadding = 0
                 when (newState) {
                     BottomSheetBehavior.STATE_COLLAPSED -> {
                         targetPadding = peekHeightInPixels
                     }
                     BottomSheetBehavior.STATE_EXPANDED -> {
-                        // Usamos la altura de la pantalla menos la posición Y del panel
-                        // para obtener el padding exacto que debe tener el mapa.
                         val screenHeight = resources.displayMetrics.heightPixels
                         targetPadding = screenHeight - bottomSheet.top
                     }
-                    else -> return // No nos interesan otros estados (como HIDDEN o SETTLING)
+                    else -> return
                 }
-
-                // Aplicamos el padding final
                 map.setPadding(0, 0, 0, targetPadding)
-
-                // --- ¡AQUÍ ESTÁ LA CORRECCIÓN! ---
-                // El error estaba aquí.
-                // Obtenemos el centro actual del mapa
                 val currentTarget = map.cameraPosition.target
-
-                // Usamos un "safe call" (?.let) para ejecutar la animación
-                // SOLO SI 'currentTarget' no es nulo.
                 currentTarget?.let { target ->
-                    // 'target' aquí adentro ya no es nulo
-                    map.easeCamera(CameraUpdateFactory.newLatLng(target), 250) // Animación de 250ms
+                    map.easeCamera(CameraUpdateFactory.newLatLng(target), 250)
                 }
-                // --- FIN DE LA CORRECCIÓN ---
             }
 
             override fun onSlide(bottomSheet: View, slideOffset: Float) {
-                // Esta función se activa en tiempo real MIENTRAS arrastras el dedo
                 if (!::map.isInitialized) return
-
-                // Get the total height of the screen
                 val screenHeight = resources.displayMetrics.heightPixels
-
-                // bottomSheet.top es la coordenada Y del borde superior del panel.
-                // El padding que necesita el mapa es exactamente la altura de la pantalla
-                // menos la posición Y del borde superior del panel.
                 val currentPadding = screenHeight - bottomSheet.top
-
-                // Aplicamos el padding solo si es un valor válido
                 if (currentPadding > 0) {
                     map.setPadding(0, 0, 0, currentPadding)
                 } else {
-                    // Failsafe si el panel está oculto
                     map.setPadding(0, 0, 0, 0)
                 }
             }
         })
     }
 
-    // --- onMapReady (sin cambios) ---
+    // --- onMapReady (MODIFICADO para usar onStyleLoaded) ---
     override fun onMapReady(mapLibreMap: MapLibreMap) {
         this.map = mapLibreMap
-        val styleUrl = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
 
-        map.setStyle(styleUrl) { style ->
-            this.mapStyle = style
-            Log.d("MainActivity", "Estilo cargado.")
+        // Carga el estilo 2D (tu estilo original) por defecto
+        map.setStyle(style2D, Style.OnStyleLoaded { style ->
+            onStyleLoaded(style) // Llama a la nueva función
+        })
 
-            map.setPadding(0, 0, 0, peekHeightInPixels)
-
-            loadMapIcons(style)
-            setupParaderoLayer(style)
-            setupBusLayer(style)
-            addTurismoMarkers()
-
-            enableLocation(style)
-            startBusDataFetching()
-
-            map.addOnMapClickListener { point ->
-                val screenPoint = map.projection.toScreenLocation(point)
-                val features = map.queryRenderedFeatures(screenPoint, "paradero-layer")
-                if (features.isNotEmpty()) {
-                    val stopId = features[0].getStringProperty("stop_id")
-                    if (stopId != null) {
-                        handleParaderoClick(stopId)
-                    }
+        // El click listener para los paraderos se queda aquí
+        map.addOnMapClickListener { point ->
+            val screenPoint = map.projection.toScreenLocation(point)
+            val features = map.queryRenderedFeatures(screenPoint, "paradero-layer")
+            if (features.isNotEmpty()) {
+                val stopId = features[0].getStringProperty("stop_id")
+                if (stopId != null) {
+                    handleParaderoClick(stopId)
                 }
-                true
             }
+            true
+        }
+    }
+
+    // --- NUEVA FUNCIÓN onStyleLoaded ---
+    /**
+     * Carga todas las capas, íconos y marcadores en el estilo actual del mapa.
+     * Se llama cada vez que se cambia el estilo (2D o 3D).
+     */
+    private fun onStyleLoaded(style: Style) {
+        this.mapStyle = style
+        Log.d("MainActivity", "Estilo cargado: ${style.uri}")
+
+        // Recarga todos los elementos visuales
+        loadMapIcons(style)
+        setupParaderoLayer(style)
+        setupBusLayer(style)
+        addTurismoMarkers() // Esto vuelve a añadir los marcadores de turismo
+
+        // Vuelve a activar la ubicación en el nuevo estilo
+        enableLocation(style)
+
+        // Reinicia el dibujado de rutas si había una seleccionada
+        if (selectedRouteId != null && selectedDirectionId != null) {
+            val route = GtfsDataManager.routes[selectedRouteId]
+            if (route != null) {
+                drawRoute(route, selectedDirectionId!!)
+            }
+        } else {
+            // Asegura que los paraderos cercanos se muestren
+            sharedViewModel.nearbyStops.value?.let { showParaderosOnMap(it) }
+        }
+
+        // Vuelve a aplicar el padding del BottomSheet
+        if (::bottomSheetBehavior.isInitialized && ::map.isInitialized) {
+            val screenHeight = resources.displayMetrics.heightPixels
+            val currentPadding = screenHeight - findViewById<View>(R.id.bottom_sheet).top
+            if (currentPadding > 0) {
+                map.setPadding(0, 0, 0, currentPadding)
+            } else {
+                map.setPadding(0, 0, 0, peekHeightInPixels) // Failsafe
+            }
+        }
+
+        // Vuelve a iniciar el "fetch" de buses
+        // (No es necesario llamarlo explícitamente, el loop en startBusDataFetching se encarga)
+    }
+
+    // --- NUEVA FUNCIÓN toggleMapStyle ---
+    /**
+     * Cambia entre el estilo 2D y 3D.
+     */
+    private fun toggleMapStyle() {
+        if (!::map.isInitialized) return // No hacer nada si el mapa no está listo
+
+        is3D = !is3D // Invierte el estado
+
+        if (is3D) {
+            Log.d("MapStyle", "Cambiando a 3D")
+            map.setStyle(style3D, Style.OnStyleLoaded { style ->
+                onStyleLoaded(style) // Llama a la función para recargar todo
+                // Inclina el mapa automáticamente al entrar en 3D
+                map.animateCamera(CameraUpdateFactory.newCameraPosition(
+                    CameraPosition.Builder(map.cameraPosition) // <-- CORREGIDO
+                        .tilt(60.0) // 60 grados de inclinación
+                        .build()
+                ), 1000)
+            })
+            mapStyleFab.setImageResource(android.R.drawable.ic_menu_view) // Ícono "2D"
+
+        } else {
+            Log.d("MapStyle", "Cambiando a 2D")
+            map.setStyle(style2D, Style.OnStyleLoaded { style ->
+                onStyleLoaded(style) // Llama a la función para recargar todo
+                // Resetea la inclinación
+                map.animateCamera(CameraUpdateFactory.newCameraPosition(
+                    CameraPosition.Builder(map.cameraPosition) // <-- CORREGIDO
+                        .tilt(0.0) // 0 grados de inclinación
+                        .build()
+                ), 1000)
+            })
+            mapStyleFab.setImageResource(android.R.drawable.ic_menu_mapmode) // Ícono original
         }
     }
 
@@ -376,7 +580,7 @@ class MainActivity : AppCompatActivity(),
             bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
         } else {
             Toast.makeText(this, "No se encontraron rutas para el paradero $stopId", Toast.LENGTH_SHORT).show()
-            sharedViewModel.setRouteFilter(emptyList()) // <-- CORRECCIÓN: Pasa lista vacía
+            sharedViewModel.setRouteFilter(emptyList())
         }
     }
 
@@ -430,8 +634,6 @@ class MainActivity : AppCompatActivity(),
             }
         }
     }
-    // --- FIN CORRECCIÓN ---
-
 
     fun showRouteDetail(routeId: String, directionId: Int) {
         val fragment = DetalleRutaFragment.newInstance(routeId, directionId)
@@ -473,27 +675,26 @@ class MainActivity : AppCompatActivity(),
             "473" to R.drawable.linea_10, "476" to R.drawable.linea_13, "474" to R.drawable.linea_13,
             "475" to R.drawable.linea_13, "466" to R.drawable.linea_1,
         )
-        try {
-            style.addImage("bus-icon-default", BitmapFactory.decodeResource(resources, R.drawable.ic_bus))
-            routeIcons.forEach { (routeId, resourceId) ->
-                try {
-                    style.addImage("bus-icon-$routeId", BitmapFactory.decodeResource(resources, resourceId))
-                } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar icono para ruta $routeId: ${e.message}") }
-            }
-        } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar los íconos: ${e.message}") }
-        style.addSource(GeoJsonSource("bus-source"))
+        // Asegurarse de que el source no exista ya (al cambiar de estilo)
+        if (style.getSource("bus-source") == null) {
+            style.addSource(GeoJsonSource("bus-source"))
+        }
         val cases = routeIcons.keys.flatMap { routeId ->
             listOf(eq(get("routeId"), literal(routeId)), literal("bus-icon-$routeId"))
         }.toTypedArray()
-        val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
-            withProperties(
-                PropertyFactory.iconImage(switchCase(*cases, literal("bus-icon-default"))),
-                PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
-                PropertyFactory.iconSize(0.5f),
-                PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(11.99f, 0f), stop(12f, 1f)))
-            )
+
+        // Asegurarse de que la capa no exista ya (al cambiar de estilo)
+        if (style.getLayer("bus-layer") == null) {
+            val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
+                withProperties(
+                    PropertyFactory.iconImage(switchCase(*cases, literal("bus-icon-default"))),
+                    PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
+                    PropertyFactory.iconSize(0.5f),
+                    PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(11.99f, 0f), stop(12f, 1f)))
+                )
+            }
+            style.addLayer(busLayer)
         }
-        style.addLayer(busLayer)
     }
 
 
@@ -513,15 +714,12 @@ class MainActivity : AppCompatActivity(),
                     ),
                     PropertyFactory.iconAllowOverlap(true),
                     PropertyFactory.iconIgnorePlacement(false),
-                    // --- ¡¡¡CORRECCIÓN AQUÍ!!! ---
-                    // Vuelvo a los valores que tenías originalmente (o similares)
                     PropertyFactory.iconSize(
                         switchCase(
                             eq(get("selected"), literal(true)), literal(0.07f),
                             literal(0.05f)
                         )
                     ),
-                    // --- FIN CORRECCIÓN ---
                     PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(12.99f, 0f), stop(13f, 1f))),
                     PropertyFactory.textField(get("stop_id")),
                     PropertyFactory.textSize(10f),
@@ -533,8 +731,6 @@ class MainActivity : AppCompatActivity(),
             style.addLayer(paraderoLayer)
         }
     }
-    // --- FIN CORRECCIÓN ---
-
 
     private fun requestFreshLocation() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -599,20 +795,27 @@ class MainActivity : AppCompatActivity(),
         val geoJsonString = """{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [${routePoints.joinToString { "[${it.longitude},${it.latitude}]" }}]}}"""
 
         val sourceId = "route-source-${route.routeId}-$directionId"
-        style.addSource(GeoJsonSource(sourceId, geoJsonString))
-        currentRouteSourceId = sourceId
-        val layerId = "route-layer-${route.routeId}-$directionId"
-        val routeLayer = LineLayer(layerId, sourceId).apply {
-            withProperties(
-                PropertyFactory.lineColor(Color.parseColor(if (route.color.startsWith("#")) route.color else "#${route.color}")),
-                PropertyFactory.lineWidth(5f),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
-            )
+        // Asegurarse de que el source no exista ya (al cambiar de estilo)
+        if (style.getSource(sourceId) == null) {
+            style.addSource(GeoJsonSource(sourceId, geoJsonString))
         }
+        currentRouteSourceId = sourceId
 
-        val belowLayer = style.layers.find { it.id == "bus-layer" || it.id == "paradero-layer" }?.id
-        if (belowLayer != null) { style.addLayerBelow(routeLayer, belowLayer)} else { style.addLayer(routeLayer)}
+        val layerId = "route-layer-${route.routeId}-$directionId"
+        // Asegurarse de que la capa no exista ya (al cambiar de estilo)
+        if (style.getLayer(layerId) == null) {
+            val routeLayer = LineLayer(layerId, sourceId).apply {
+                withProperties(
+                    PropertyFactory.lineColor(Color.parseColor(if (route.color.startsWith("#")) route.color else "#${route.color}")),
+                    PropertyFactory.lineWidth(5f),
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
+                )
+            }
+
+            val belowLayer = style.layers.find { it.id == "bus-layer" || it.id == "paradero-layer" }?.id
+            if (belowLayer != null) { style.addLayerBelow(routeLayer, belowLayer)} else { style.addLayer(routeLayer)}
+        }
 
         currentRouteLayerId = layerId
         val paraderosDeRuta = GtfsDataManager.getStopsForRoute(route.routeId, directionId)
@@ -630,9 +833,6 @@ class MainActivity : AppCompatActivity(),
         selectedDirectionId = null
         sharedViewModel.selectStop(null)
         sharedViewModel.setNearbyCalculationCenter(null)
-
-        // --- ¡¡¡CORRECCIÓN CLAVE AQUÍ!!! ---
-        // Pasamos null para que RutasFragment muestre TODAS las rutas
 
         updateBusMarkers()
         Toast.makeText(this, "Mostrando buses cercanos", Toast.LENGTH_SHORT).show()
@@ -657,35 +857,46 @@ class MainActivity : AppCompatActivity(),
         }
         currentRouteLayerId = null
         currentRouteSourceId = null
-        showParaderosOnMap(emptyList())
+        // No limpies los paraderos aquí, deja que onStyleLoaded o el observer se encarguen
+        // showParaderosOnMap(emptyList())
     }
 
     private fun addTurismoMarkers() {
+        // --- MODIFICACIÓN IMPORTANTE ---
+        // Los marcadores de MapLibre (que usas para turismo)
+        // se BORRAN automáticamente cuando cambias el estilo.
+        // Esta función ahora se llamará desde 'onStyleLoaded'
+        // para volver a ponerlos.
+
         val iconFactory = IconFactory.getInstance(this@MainActivity)
         val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_turismo)
         val scaledBitmap = Bitmap.createScaledBitmap(originalBitmap, 80, 80, false)
         val icon = iconFactory.fromBitmap(scaledBitmap)
 
-        turismoMarkers.forEach { it.remove() }
+        turismoMarkers.forEach { it.remove() } // Limpia la lista interna
         turismoMarkers.clear()
 
         DatosTurismo.puntosTuristicos.forEach { punto ->
-            val marker = map.addMarker(
+            val marker = map.addMarker( // 'map.addMarker' los añade al estilo actual
                 MarkerOptions().position(LatLng(punto.latitud, punto.longitud))
                     .title(punto.nombre)
-                    .snippet(punto.id.toString()) // <-- CAMBIO: Usar ID en snippet
+                    .snippet(punto.id.toString())
                     .icon(icon)
             )
-            turismoMarkers.add(marker)
+            turismoMarkers.add(marker) // Guarda la referencia
         }
 
         map.setOnMarkerClickListener { marker ->
-            marker.snippet?.toIntOrNull()?.let { puntoId ->
-                DatosTurismo.puntosTuristicos.find { it.id == puntoId }?.let { punto ->
-                    showTurismoDetail(punto)
-                    return@setOnMarkerClickListener true
+            // Asegurarse de que el click es de un marcador de turismo
+            if (turismoMarkers.contains(marker)) {
+                marker.snippet?.toIntOrNull()?.let { puntoId ->
+                    DatosTurismo.puntosTuristicos.find { it.id == puntoId }?.let { punto ->
+                        showTurismoDetail(punto)
+                        return@setOnMarkerClickListener true
+                    }
                 }
             }
+            // Devuelve 'false' para que el click en paraderos (que no son Markers) funcione
             return@setOnMarkerClickListener false
         }
     }
@@ -694,19 +905,23 @@ class MainActivity : AppCompatActivity(),
     private fun startBusDataFetching() {
         lifecycleScope.launch {
             while (isActive) {
-                val centerLocation = if(::map.isInitialized) {
-                    val lastKnownLoc = try { map.locationComponent.lastKnownLocation } catch (e: Exception) { null }
-                    if (lastKnownLoc != null) {
-                        lastKnownLoc
-                    } else {
-                        map.cameraPosition.target?.let { target ->
-                            Location("mapCenter").apply { latitude = target.latitude; longitude = target.longitude }
+                // --- MODIFICACIÓN ---
+                // Solo busca buses si el mapa y el estilo están listos
+                if (::map.isInitialized && mapStyle != null && mapStyle!!.isFullyLoaded) {
+                    val centerLocation = if(::map.isInitialized) {
+                        val lastKnownLoc = try { map.locationComponent.lastKnownLocation } catch (e: Exception) { null }
+                        if (lastKnownLoc != null) {
+                            lastKnownLoc
+                        } else {
+                            map.cameraPosition.target?.let { target ->
+                                Location("mapCenter").apply { latitude = target.latitude; longitude = target.longitude }
+                            }
                         }
+                    } else {
+                        null
                     }
-                } else {
-                    null
+                    fetchBusData(centerLocation)
                 }
-                fetchBusData(centerLocation)
                 delay(20000)
             }
         }
@@ -741,6 +956,12 @@ class MainActivity : AppCompatActivity(),
 
     private fun updateBusMarkers(centerLocation: Location? = null) {
         val feed = lastFeedMessage ?: return
+
+        // --- MODIFICACIÓN ---
+        // Asegurarse de que el estilo esté listo antes de intentar actualizarlo
+        if (mapStyle == null || !mapStyle!!.isFullyLoaded) {
+            return
+        }
 
         val location = centerLocation ?: (if(::map.isInitialized) try { map.locationComponent.lastKnownLocation } catch (e: Exception) { null } else null)
 
@@ -783,7 +1004,10 @@ class MainActivity : AppCompatActivity(),
             }
             val featureCollection = FeatureCollection.fromFeatures(busFeatures)
             withContext(Dispatchers.Main) {
-                mapStyle?.getSourceAs<GeoJsonSource>("bus-source")?.setGeoJson(featureCollection)
+                // Chequeo final por si el estilo cambió justo ahora
+                if (mapStyle != null && mapStyle!!.isFullyLoaded) {
+                    mapStyle?.getSourceAs<GeoJsonSource>("bus-source")?.setGeoJson(featureCollection)
+                }
             }
         }
     }
@@ -839,7 +1063,6 @@ class MainActivity : AppCompatActivity(),
 
     /**
      * Función auxiliar: Encuentra el índice del punto del trazado (Shape) más cercano a un paradero (GtfsStop).
-     * CORREGIDO: Usa List<LatLng> y 'latitude'/'longitude'
      */
     private fun findNearestShapePointIndex(shapePoints: List<LatLng>, stop: GtfsStop): Int {
         return shapePoints.indices.minByOrNull { index ->
@@ -848,9 +1071,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     /**
-     * ¡NUEVA FUNCIÓN!
      * Dibuja solo el segmento de la ruta desde el Paradero A hasta el Paradero B.
-     * CORREGIDO: Usa List<LatLng> y 'latitude'/'longitude'.
      */
     override fun drawRouteSegment(route: GtfsRoute, directionId: Int, stopA: GtfsStop, stopB: GtfsStop) {
         clearDrawnElements()
@@ -883,22 +1104,28 @@ class MainActivity : AppCompatActivity(),
         val geoJsonString = """{"type": "Feature", "geometry": {"type": "LineString", "coordinates": $coordinates}}"""
 
         val sourceId = "route-source-segment"
+        // Asegurarse de que el source no exista ya (al cambiar de estilo)
+        if (style.getSource(sourceId) == null) {
+            style.addSource(GeoJsonSource(sourceId, geoJsonString))
+        }
         currentRouteSourceId = sourceId
-        style.addSource(GeoJsonSource(sourceId, geoJsonString))
 
         val layerId = "route-layer-segment"
-        currentRouteLayerId = layerId
-        val routeLayer = LineLayer(layerId, sourceId).apply {
-            withProperties(
-                PropertyFactory.lineColor(Color.parseColor(if (route.color.startsWith("#")) route.color else "#${route.color}")),
-                PropertyFactory.lineWidth(6f),
-                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-                PropertyFactory.lineOpacity(0.8f)
-            )
+        // Asegurarse de que la capa no exista ya (al cambiar de estilo)
+        if (style.getLayer(layerId) == null) {
+            currentRouteLayerId = layerId
+            val routeLayer = LineLayer(layerId, sourceId).apply {
+                withProperties(
+                    PropertyFactory.lineColor(Color.parseColor(if (route.color.startsWith("#")) route.color else "#${route.color}")),
+                    PropertyFactory.lineWidth(6f),
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                    PropertyFactory.lineOpacity(0.8f)
+                )
+            }
+            val belowLayer = style.layers.find { it.id == "bus-layer" || it.id == "paradero-layer" }?.id
+            if (belowLayer != null) { style.addLayerBelow(routeLayer, belowLayer) } else { style.addLayer(routeLayer) }
         }
-        val belowLayer = style.layers.find { it.id == "bus-layer" || it.id == "paradero-layer" }?.id
-        if (belowLayer != null) { style.addLayerBelow(routeLayer, belowLayer) } else { style.addLayer(routeLayer) }
 
         showParaderosOnMap(listOf(stopA, stopB))
         Log.d("DrawRouteSegment", "Mostrando paraderos A y B.")
@@ -910,7 +1137,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     /**
-     * Implementación de la interfaz para el botón "Cómo Llegar".
+     * Implementación de la interfaz para el botón "Cómo Llegar" a PUNTO TURÍSTICO.
      */
     override fun onGetDirectionsClicked(punto: PuntoTuristico) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -927,7 +1154,6 @@ class MainActivity : AppCompatActivity(),
                     return@addOnSuccessListener
                 }
 
-                // --- INICIO DE LA MODIFICACIÓN ---
                 val userLat = location.latitude
                 val userLon = location.longitude
                 val puntoLat = punto.latitud
@@ -936,34 +1162,30 @@ class MainActivity : AppCompatActivity(),
                 // Búsqueda con radio flexible
                 var stopsNearA: List<GtfsStop> = emptyList()
                 var stopsNearB: List<GtfsStop> = emptyList()
-                // Define los radios que queremos intentar, en orden.
                 val searchRadii = listOf(500f, 1000f, 2000f) // 500m, 1km, 2km
                 var radiusUsedA: Float? = null
                 var radiusUsedB: Float? = null
 
                 Log.d("Directions", "Iniciando búsqueda de paraderos...")
 
-                // Buscar paraderos cercanos al Usuario (A)
                 for (radius in searchRadii) {
                     stopsNearA = findAllNearbyStops(userLat, userLon, radius)
                     if (stopsNearA.isNotEmpty()) {
                         radiusUsedA = radius
                         Log.d("Directions", "Paraderos (A) encontrados a ${radius}m")
-                        break // Encontramos paraderos, salir del bucle
+                        break
                     }
                 }
 
-                // Buscar paraderos cercanos al Destino (B)
                 for (radius in searchRadii) {
                     stopsNearB = findAllNearbyStops(puntoLat, puntoLon, radius)
                     if (stopsNearB.isNotEmpty()) {
                         radiusUsedB = radius
                         Log.d("Directions", "Paraderos (B) encontrados a ${radius}m")
-                        break // Encontramos paraderos, salir del bucle
+                        break
                     }
                 }
 
-                // Verificar si se encontraron paraderos después de intentar todos los radios
                 if (stopsNearA.isEmpty()) {
                     Log.w("Directions", "No se encontraron paraderos (A) cerca del usuario (radio max ${searchRadii.last()}m)")
                     Toast.makeText(this, "No se encontraron paraderos cercanos a tu ubicación (radio max 2km)", Toast.LENGTH_LONG).show()
@@ -976,13 +1198,11 @@ class MainActivity : AppCompatActivity(),
                 }
 
                 Log.d("Directions", "Búsqueda exitosa. A: ${stopsNearA.size} (radio ${radiusUsedA}m), B: ${stopsNearB.size} (radio ${radiusUsedB}m)")
-                // --- FIN DE LA MODIFICACIÓN ---
 
-                // El resto de la lógica para encontrar la ruta común funciona igual
                 var bestRouteFound: DisplayRouteInfo? = null
                 var bestStopA: GtfsStop? = null
                 var bestStopB: GtfsStop? = null
-                var commonRoutesFound = false // Para saber si encontramos rutas aunque sea en mala dirección
+                var commonRoutesFound = false
 
                 for (stopA in stopsNearA) {
                     val routesA = GtfsDataManager.getRoutesForStop(stopA.stopId)
@@ -1024,7 +1244,7 @@ class MainActivity : AppCompatActivity(),
 
                     drawRouteSegment(route, directionId, bestStopA, bestStopB)
 
-                    sharedViewModel.selectStop(bestStopA.stopId) // Resalta paradero A
+                    sharedViewModel.selectStop(bestStopA.stopId)
 
                 } else {
                     val toastMessage = if (commonRoutesFound) {
@@ -1035,11 +1255,9 @@ class MainActivity : AppCompatActivity(),
                     Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
                     Log.d("Directions", "No se encontró ruta válida A -> B.")
 
-                    // Centrar el mapa para mostrar ambos grupos de paraderos
                     val boundsBuilder = LatLngBounds.Builder()
                     stopsNearA.firstOrNull()?.let { boundsBuilder.include(LatLng(it.location.latitude, it.location.longitude)) }
                     stopsNearB.firstOrNull()?.let { boundsBuilder.include(LatLng(it.location.latitude, it.location.longitude)) }
-                    // Asegurarnos de incluir el punto de usuario y destino también
                     boundsBuilder.include(LatLng(userLat, userLon))
                     boundsBuilder.include(LatLng(puntoLat, puntoLon))
 

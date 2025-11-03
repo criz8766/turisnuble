@@ -13,7 +13,6 @@
         android:layout_height="match_parent"
         android:contentDescription="Mapa interactivo de transporte y turismo" />
 
-    <!-- Added Material CardView wrapper for bottom sheet with elevation and rounded corners -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/bottom_sheet"
         android:layout_width="match_parent"
@@ -34,7 +33,21 @@
         </FrameLayout>
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- Enhanced FAB with better positioning and Material 3 styling -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/map_style_fab"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        app:layout_anchor="@id/bottom_sheet"
+        app:layout_anchorGravity="top|start"
+        android:src="@android:drawable/ic_menu_mapmode"
+        android:contentDescription="Cambiar vista 2D/3D"
+        app:elevation="6dp"
+        app:hoveredFocusedTranslationZ="8dp"
+        app:pressedTranslationZ="12dp"
+        app:rippleColor="@android:color/white"
+        app:fabSize="mini"
+        android:translationY="-40dp"/>
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/location_fab"
         android:layout_width="wrap_content"

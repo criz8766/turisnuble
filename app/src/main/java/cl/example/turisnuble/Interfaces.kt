@@ -24,3 +24,11 @@ interface DetalleTurismoNavigator {
     // --- AÑADE ESTA LÍNEA ---
     fun onGetDirectionsClicked(punto: PuntoTuristico)
 }
+
+interface ParaderoActionHandler {
+    /**
+     * Solicita encontrar una ruta de bus desde la ubicación actual del usuario
+     * hasta un paradero específico.
+     */
+    fun onGetDirectionsToStop(stop: GtfsStop)
+}
