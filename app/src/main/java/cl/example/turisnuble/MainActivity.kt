@@ -90,6 +90,10 @@ class MainActivity : AppCompatActivity(),
     private var mapStyle: Style? = null
     private var currentSelectedStopId: String? = null
     private val turismoMarkers = mutableListOf<Marker>()
+    private var peekHeightInPixels: Int = 0
+
+    private var listMaxHeight: Int = 0
+    private var detailMaxHeight: Int = 0
 
     // --- apiService (sin cambios) ---
     private val apiService: GtfsApiService by lazy {
@@ -140,8 +144,9 @@ class MainActivity : AppCompatActivity(),
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
         val screenHeight = resources.displayMetrics.heightPixels
-        bottomSheetBehavior.maxHeight = (screenHeight * 0.30).toInt()
-        val peekHeightInPixels = (46 * resources.displayMetrics.density).toInt()
+        bottomSheetBehavior.maxHeight = (screenHeight * 0.40).toInt()
+        // val peekHeightInPixels = (46 * resources.displayMetrics.density).toInt()
+        peekHeightInPixels = (46 * resources.displayMetrics.density).toInt()
         bottomSheetBehavior.peekHeight = peekHeightInPixels
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
 
@@ -215,8 +220,71 @@ class MainActivity : AppCompatActivity(),
 
     // --- setupBottomSheetCallback (sin cambios) ---
     private fun setupBottomSheetCallback() {
-        bottomSheetBehavior = BottomSheetBehavior.from(findViewById(R.id.bottom_sheet))
-        // ... (listeners si son necesarios) ...
+        // Asegura que el behavior esté inicializado
+        if (!::bottomSheetBehavior.isInitialized) {
+            val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
+            bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
+        }
+
+        // Añade el listener para el deslizamiento
+        bottomSheetBehavior.addBottomSheetCallback(object : BottomSheetBehavior.BottomSheetCallback() {
+
+            override fun onStateChanged(bottomSheet: View, newState: Int) {
+                // Esta función se activa cuando el panel "termina" de moverse
+                if (!::map.isInitialized) return
+
+                var targetPadding = 0
+                when (newState) {
+                    BottomSheetBehavior.STATE_COLLAPSED -> {
+                        targetPadding = peekHeightInPixels
+                    }
+                    BottomSheetBehavior.STATE_EXPANDED -> {
+                        // Usamos la altura de la pantalla menos la posición Y del panel
+                        // para obtener el padding exacto que debe tener el mapa.
+                        val screenHeight = resources.displayMetrics.heightPixels
+                        targetPadding = screenHeight - bottomSheet.top
+                    }
+                    else -> return // No nos interesan otros estados (como HIDDEN o SETTLING)
+                }
+
+                // Aplicamos el padding final
+                map.setPadding(0, 0, 0, targetPadding)
+
+                // --- ¡AQUÍ ESTÁ LA CORRECCIÓN! ---
+                // El error estaba aquí.
+                // Obtenemos el centro actual del mapa
+                val currentTarget = map.cameraPosition.target
+
+                // Usamos un "safe call" (?.let) para ejecutar la animación
+                // SOLO SI 'currentTarget' no es nulo.
+                currentTarget?.let { target ->
+                    // 'target' aquí adentro ya no es nulo
+                    map.easeCamera(CameraUpdateFactory.newLatLng(target), 250) // Animación de 250ms
+                }
+                // --- FIN DE LA CORRECCIÓN ---
+            }
+
+            override fun onSlide(bottomSheet: View, slideOffset: Float) {
+                // Esta función se activa en tiempo real MIENTRAS arrastras el dedo
+                if (!::map.isInitialized) return
+
+                // Get the total height of the screen
+                val screenHeight = resources.displayMetrics.heightPixels
+
+                // bottomSheet.top es la coordenada Y del borde superior del panel.
+                // El padding que necesita el mapa es exactamente la altura de la pantalla
+                // menos la posición Y del borde superior del panel.
+                val currentPadding = screenHeight - bottomSheet.top
+
+                // Aplicamos el padding solo si es un valor válido
+                if (currentPadding > 0) {
+                    map.setPadding(0, 0, 0, currentPadding)
+                } else {
+                    // Failsafe si el panel está oculto
+                    map.setPadding(0, 0, 0, 0)
+                }
+            }
+        })
     }
 
     // --- onMapReady (sin cambios) ---
@@ -227,6 +295,8 @@ class MainActivity : AppCompatActivity(),
         map.setStyle(styleUrl) { style ->
             this.mapStyle = style
             Log.d("MainActivity", "Estilo cargado.")
+
+            map.setPadding(0, 0, 0, peekHeightInPixels)
 
             loadMapIcons(style)
             setupParaderoLayer(style)
@@ -857,16 +927,58 @@ class MainActivity : AppCompatActivity(),
                     return@addOnSuccessListener
                 }
 
-                val stopsNearA = findAllNearbyStops(location.latitude, location.longitude, 500f)
-                val stopsNearB = findAllNearbyStops(punto.latitud, punto.longitud, 500f)
+                // --- INICIO DE LA MODIFICACIÓN ---
+                val userLat = location.latitude
+                val userLon = location.longitude
+                val puntoLat = punto.latitud
+                val puntoLon = punto.longitud
 
-                if (stopsNearA.isEmpty() || stopsNearB.isEmpty()) {
-                    Toast.makeText(this, "No se encontraron paraderos cercanos a ti o al destino", Toast.LENGTH_LONG).show()
+                // Búsqueda con radio flexible
+                var stopsNearA: List<GtfsStop> = emptyList()
+                var stopsNearB: List<GtfsStop> = emptyList()
+                // Define los radios que queremos intentar, en orden.
+                val searchRadii = listOf(500f, 1000f, 2000f) // 500m, 1km, 2km
+                var radiusUsedA: Float? = null
+                var radiusUsedB: Float? = null
+
+                Log.d("Directions", "Iniciando búsqueda de paraderos...")
+
+                // Buscar paraderos cercanos al Usuario (A)
+                for (radius in searchRadii) {
+                    stopsNearA = findAllNearbyStops(userLat, userLon, radius)
+                    if (stopsNearA.isNotEmpty()) {
+                        radiusUsedA = radius
+                        Log.d("Directions", "Paraderos (A) encontrados a ${radius}m")
+                        break // Encontramos paraderos, salir del bucle
+                    }
+                }
+
+                // Buscar paraderos cercanos al Destino (B)
+                for (radius in searchRadii) {
+                    stopsNearB = findAllNearbyStops(puntoLat, puntoLon, radius)
+                    if (stopsNearB.isNotEmpty()) {
+                        radiusUsedB = radius
+                        Log.d("Directions", "Paraderos (B) encontrados a ${radius}m")
+                        break // Encontramos paraderos, salir del bucle
+                    }
+                }
+
+                // Verificar si se encontraron paraderos después de intentar todos los radios
+                if (stopsNearA.isEmpty()) {
+                    Log.w("Directions", "No se encontraron paraderos (A) cerca del usuario (radio max ${searchRadii.last()}m)")
+                    Toast.makeText(this, "No se encontraron paraderos cercanos a tu ubicación (radio max 2km)", Toast.LENGTH_LONG).show()
+                    return@addOnSuccessListener
+                }
+                if (stopsNearB.isEmpty()) {
+                    Log.w("Directions", "No se encontraron paraderos (B) cerca del destino (radio max ${searchRadii.last()}m)")
+                    Toast.makeText(this, "No se encontraron paraderos cercanos al destino (radio max 2km)", Toast.LENGTH_LONG).show()
                     return@addOnSuccessListener
                 }
 
-                Log.d("Directions", "Buscando conexión entre ${stopsNearA.size} (A) y ${stopsNearB.size} (B) paraderos")
+                Log.d("Directions", "Búsqueda exitosa. A: ${stopsNearA.size} (radio ${radiusUsedA}m), B: ${stopsNearB.size} (radio ${radiusUsedB}m)")
+                // --- FIN DE LA MODIFICACIÓN ---
 
+                // El resto de la lógica para encontrar la ruta común funciona igual
                 var bestRouteFound: DisplayRouteInfo? = null
                 var bestStopA: GtfsStop? = null
                 var bestStopB: GtfsStop? = null
@@ -921,13 +1033,22 @@ class MainActivity : AppCompatActivity(),
                         "No se encontró una ruta de bus directa"
                     }
                     Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
-                    Log.d("Directions", "No se encontró ruta válida A -> B en el radio de 500m.")
+                    Log.d("Directions", "No se encontró ruta válida A -> B.")
 
-                    val bounds = LatLngBounds.Builder()
-                        .include(LatLng(stopsNearA.first().location.latitude, stopsNearA.first().location.longitude))
-                        .include(LatLng(stopsNearB.first().location.latitude, stopsNearB.first().location.longitude))
-                        .build()
-                    map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 150), 1000)
+                    // Centrar el mapa para mostrar ambos grupos de paraderos
+                    val boundsBuilder = LatLngBounds.Builder()
+                    stopsNearA.firstOrNull()?.let { boundsBuilder.include(LatLng(it.location.latitude, it.location.longitude)) }
+                    stopsNearB.firstOrNull()?.let { boundsBuilder.include(LatLng(it.location.latitude, it.location.longitude)) }
+                    // Asegurarnos de incluir el punto de usuario y destino también
+                    boundsBuilder.include(LatLng(userLat, userLon))
+                    boundsBuilder.include(LatLng(puntoLat, puntoLon))
+
+                    try {
+                        val bounds = boundsBuilder.build()
+                        map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 150), 1000)
+                    } catch (e: Exception) {
+                        Log.e("Directions", "Error al crear bounds para centrar mapa", e)
+                    }
                 }
             }
             .addOnFailureListener {
