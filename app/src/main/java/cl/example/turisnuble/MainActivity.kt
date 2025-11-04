@@ -460,6 +460,8 @@ class MainActivity : AppCompatActivity(),
 
         // Vuelve a activar la ubicación en el nuevo estilo
         enableLocation(style)
+        startBusDataFetching()
+
 
         // Reinicia el dibujado de rutas si había una seleccionada
         if (selectedRouteId != null && selectedDirectionId != null) {
@@ -675,26 +677,27 @@ class MainActivity : AppCompatActivity(),
             "473" to R.drawable.linea_10, "476" to R.drawable.linea_13, "474" to R.drawable.linea_13,
             "475" to R.drawable.linea_13, "466" to R.drawable.linea_1,
         )
-        // Asegurarse de que el source no exista ya (al cambiar de estilo)
-        if (style.getSource("bus-source") == null) {
-            style.addSource(GeoJsonSource("bus-source"))
-        }
+        try {
+            style.addImage("bus-icon-default", BitmapFactory.decodeResource(resources, R.drawable.ic_bus))
+            routeIcons.forEach { (routeId, resourceId) ->
+                try {
+                    style.addImage("bus-icon-$routeId", BitmapFactory.decodeResource(resources, resourceId))
+                } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar icono para ruta $routeId: ${e.message}") }
+            }
+        } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar los íconos: ${e.message}") }
+        style.addSource(GeoJsonSource("bus-source"))
         val cases = routeIcons.keys.flatMap { routeId ->
             listOf(eq(get("routeId"), literal(routeId)), literal("bus-icon-$routeId"))
         }.toTypedArray()
-
-        // Asegurarse de que la capa no exista ya (al cambiar de estilo)
-        if (style.getLayer("bus-layer") == null) {
-            val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
-                withProperties(
-                    PropertyFactory.iconImage(switchCase(*cases, literal("bus-icon-default"))),
-                    PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
-                    PropertyFactory.iconSize(0.5f),
-                    PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(11.99f, 0f), stop(12f, 1f)))
-                )
-            }
-            style.addLayer(busLayer)
+        val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
+            withProperties(
+                PropertyFactory.iconImage(switchCase(*cases, literal("bus-icon-default"))),
+                PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconSize(0.5f),
+                PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(11.99f, 0f), stop(12f, 1f)))
+            )
         }
+        style.addLayer(busLayer)
     }
 
 
