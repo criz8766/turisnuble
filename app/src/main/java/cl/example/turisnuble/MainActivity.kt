@@ -63,7 +63,6 @@ import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
-import org.maplibre.android.style.expressions.Expression
 import retrofit2.Retrofit
 import retrofit2.converter.protobuf.ProtoConverterFactory
 
@@ -97,8 +96,8 @@ class MainActivity : AppCompatActivity(),
 
     // --- VARIABLES AÑADIDAS PARA 3D ---
     private lateinit var mapStyleFab: FloatingActionButton
-    private val style2D = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
-    private val style3D = "https://tiles.openfreemap.org/styles/3d"
+    private val styleLIGHT = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json"
+    private val styleDARK = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json"
     private var is3D = false
     // --- FIN VARIABLES 3D ---
 
@@ -425,7 +424,7 @@ class MainActivity : AppCompatActivity(),
         this.map = mapLibreMap
 
         // Carga el estilo 2D (tu estilo original) por defecto
-        map.setStyle(style2D, Style.OnStyleLoaded { style ->
+        map.setStyle(styleLIGHT, Style.OnStyleLoaded { style ->
             onStyleLoaded(style) // Llama a la nueva función
         })
 
@@ -500,7 +499,7 @@ class MainActivity : AppCompatActivity(),
 
         if (is3D) {
             Log.d("MapStyle", "Cambiando a 3D")
-            map.setStyle(style3D, Style.OnStyleLoaded { style ->
+            map.setStyle(styleDARK, Style.OnStyleLoaded { style ->
                 onStyleLoaded(style) // Llama a la función para recargar todo
                 // Inclina el mapa automáticamente al entrar en 3D
                 map.animateCamera(CameraUpdateFactory.newCameraPosition(
@@ -513,7 +512,7 @@ class MainActivity : AppCompatActivity(),
 
         } else {
             Log.d("MapStyle", "Cambiando a 2D")
-            map.setStyle(style2D, Style.OnStyleLoaded { style ->
+            map.setStyle(styleLIGHT, Style.OnStyleLoaded { style ->
                 onStyleLoaded(style) // Llama a la función para recargar todo
                 // Resetea la inclinación
                 map.animateCamera(CameraUpdateFactory.newCameraPosition(
