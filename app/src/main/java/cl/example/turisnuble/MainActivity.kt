@@ -83,6 +83,9 @@ class MainActivity : AppCompatActivity(),
     private lateinit var tabLayout: TabLayout
     private lateinit var viewPager: ViewPager2
     private lateinit var pagerAdapter: ViewPagerAdapter
+    private lateinit var searchView: androidx.appcompat.widget.SearchView
+    private lateinit var searchResultsRecyclerView: androidx.recyclerview.widget.RecyclerView
+    private lateinit var searchAdapter: SearchAdapter
     private val sharedViewModel: SharedViewModel by viewModels()
     private var selectedRouteId: String? = null
     private var selectedDirectionId: Int? = null
@@ -94,12 +97,15 @@ class MainActivity : AppCompatActivity(),
     private val turismoMarkers = mutableListOf<Marker>()
     private var peekHeightInPixels: Int = 0
 
-    // --- VARIABLES AÑADIDAS PARA 3D ---
+    // --- VARIABLES AÑADIDAS PARA OSCURO/CLARO/SATELITE ---
     private lateinit var mapStyleFab: FloatingActionButton
     private val styleLIGHT = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json"
     private val styleDARK = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json"
-    private var is3D = false
-    // --- FIN VARIABLES 3D ---
+    private val styleSATELLITE_HYBRID = "https://api.maptiler.com/maps/hybrid/style.json?key=ya1iLYBcEKV62dZj18Tt"
+    var currentMapStyleState = 0
+    var isStyleLoading = false
+    private var lastMapStyleClickTime: Long = 0L
+    // --- FIN VARIABLES ---
 
     private var listMaxHeight: Int = 0
     private var detailMaxHeight: Int = 0
@@ -317,12 +323,36 @@ class MainActivity : AppCompatActivity(),
             clearRoutes(recenterToUser = true)
         }
 
-        // --- CONEXIÓN DEL BOTÓN 3D AÑADIDA ---
+        // --- CONEXIÓN DEL BOTÓN AÑADIDA ---
         mapStyleFab = findViewById(R.id.map_style_fab)
         mapStyleFab.setOnClickListener {
-            toggleMapStyle()
+
+            // Define el tiempo de enfriamiento (ej. 2000 milisegundos = 2 segundos)
+            val COOLDOWN_MS = 1500
+
+            val now = System.currentTimeMillis()
+
+            // Comprueba si ha pasado suficiente tiempo desde el último click
+            if (now - lastMapStyleClickTime > COOLDOWN_MS) {
+                // Sí pasó el tiempo: actualiza la marca de tiempo y ejecuta la acción
+                lastMapStyleClickTime = now
+                toggleMapStyle()
+            }
+            // Si no ha pasado el tiempo, el click simplemente se ignora (no se hace nada)
         }
-        // --- FIN CONEXIÓN 3D ---
+        // --- FIN CONEXIÓN---
+
+        searchView = findViewById(R.id.search_view)
+        setupSearchListener()
+
+        searchAdapter = SearchAdapter(emptyList()) { searchResult ->
+            onSearchResultClicked(searchResult)
+        }
+
+        // 2. Inicializamos el RecyclerView
+        searchResultsRecyclerView = findViewById(R.id.search_results_recyclerview)
+        searchResultsRecyclerView.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
+        searchResultsRecyclerView.adapter = searchAdapter
 
         sharedViewModel.nearbyStops.observe(this) { nearbyStops ->
             if (selectedRouteId == null) {
@@ -357,6 +387,106 @@ class MainActivity : AppCompatActivity(),
             } else {
                 sharedViewModel.nearbyStops.value?.let { showParaderosOnMap(it) }
             }
+        }
+    }
+
+    /**
+     * Realiza la búsqueda en todos los datos y actualiza el adaptador.
+     */
+    private fun performSearch(query: String) {
+        // 1. Buscamos en Paraderos
+        val paraderos = GtfsDataManager.stops.values
+            .filter { it.name.lowercase().contains(query) || it.stopId.equals(query, ignoreCase = true) }
+            .map { SearchResult(SearchResultType.PARADERO, it.name, "Paradero ${it.stopId}", it) }
+
+        // 2. Buscamos en Rutas
+        val rutas = GtfsDataManager.routes.values
+            .filter { it.shortName.lowercase().contains(query) || it.longName.lowercase().contains(query) }
+            .map { SearchResult(SearchResultType.RUTA, it.shortName, it.longName, it) }
+
+        // 3. Buscamos en Puntos de Turismo
+        val turismo = DatosTurismo.puntosTuristicos
+            .filter { it.nombre.lowercase().contains(query) }
+            .map { SearchResult(SearchResultType.TURISMO, it.nombre, it.direccion, it) }
+
+        // 4. Combinamos todas las listas y actualizamos el adapter
+        val results = (paraderos + rutas + turismo).sortedBy { it.title }
+
+        if (results.isNotEmpty()) {
+            searchAdapter.updateResults(results)
+            searchResultsRecyclerView.visibility = View.VISIBLE
+        } else {
+            hideSearchResults()
+        }
+    }
+
+    /**
+     * Se llama cuando el usuario hace click en un resultado de la lista.
+     */
+    private fun onSearchResultClicked(result: SearchResult) {
+        Toast.makeText(this, "Mostrando: ${result.title}", Toast.LENGTH_SHORT).show()
+
+        when (result.type) {
+            SearchResultType.PARADERO -> {
+                val paradero = result.originalObject as GtfsStop
+                handleParaderoClick(paradero.stopId)
+            }
+            SearchResultType.TURISMO -> {
+                val punto = result.originalObject as PuntoTuristico
+                showTurismoDetail(punto)
+            }
+            SearchResultType.RUTA -> {
+                val ruta = result.originalObject as GtfsRoute
+                // Asumimos dirección 0 por defecto al buscar
+                drawRoute(ruta, 0)
+                showRouteDetail(ruta.routeId, 0)
+            }
+        }
+
+        // Ocultamos todo
+        searchView.clearFocus()
+        hideSearchResults()
+        // Opcional: si quieres que la barra de búsqueda muestre lo que seleccionaste
+        searchView.setQuery(result.title, false)
+    }
+
+    /**
+     * Oculta el RecyclerView de resultados.
+     */
+    private fun hideSearchResults() {
+        searchResultsRecyclerView.visibility = View.GONE
+        searchAdapter.updateResults(emptyList()) // Limpiamos la lista
+    }
+
+    private fun setupSearchListener() {
+        searchView.setOnQueryTextListener(object : androidx.appcompat.widget.SearchView.OnQueryTextListener {
+
+            // Esta ya no es la principal, pero la mantenemos por si el usuario presiona Enter
+            override fun onQueryTextSubmit(query: String?): Boolean {
+                // Simplemente oculta el teclado
+                searchView.clearFocus()
+                return true
+            }
+
+            // ¡ESTA ES LA NUEVA LÓGICA IMPORTANTE!
+            override fun onQueryTextChange(newText: String?): Boolean {
+                val query = newText?.trim()
+
+                // Si la búsqueda está vacía o es muy corta, ocultamos la lista
+                if (query.isNullOrBlank() || query.length < 2) {
+                    hideSearchResults()
+                } else {
+                    // Si hay texto, realizamos la búsqueda
+                    performSearch(query.lowercase())
+                }
+                return true
+            }
+        })
+
+        // Añadimos un listener para cuando el usuario presiona la 'X' de limpiar
+        searchView.setOnCloseListener {
+            hideSearchResults()
+            false // Devuelve false para que el SearchView maneje el borrado del texto
         }
     }
 
@@ -423,7 +553,17 @@ class MainActivity : AppCompatActivity(),
     override fun onMapReady(mapLibreMap: MapLibreMap) {
         this.map = mapLibreMap
 
-        // Carga el estilo 2D (tu estilo original) por defecto
+        // ### INICIO CÓDIGO A AÑADIR ###
+        // Calcula un margen superior de 64dp (para que la brújula quede BAJO la barra)
+        val topMarginPx = (70 * resources.displayMetrics.density).toInt()
+        // Calcula un margen derecho de 16dp (estándar)
+        val rightMarginPx = (16 * resources.displayMetrics.density).toInt()
+
+        // Mueve la brújula para que no sea tapada
+        map.uiSettings.setCompassMargins(0, topMarginPx, rightMarginPx, 0)
+        // ### FIN CÓDIGO A AÑADIR ###
+
+        // Carga el estilo CLARO (styleLIGHT) por defecto
         map.setStyle(styleLIGHT, Style.OnStyleLoaded { style ->
             onStyleLoaded(style) // Llama a la nueva función
         })
@@ -484,6 +624,8 @@ class MainActivity : AppCompatActivity(),
             }
         }
 
+        isStyleLoading = false
+
         // Vuelve a iniciar el "fetch" de buses
         // (No es necesario llamarlo explícitamente, el loop en startBusDataFetching se encarga)
     }
@@ -493,35 +635,37 @@ class MainActivity : AppCompatActivity(),
      * Cambia entre el estilo 2D y 3D.
      */
     private fun toggleMapStyle() {
-        if (!::map.isInitialized) return // No hacer nada si el mapa no está listo
+        if (!::map.isInitialized || isStyleLoading) return
 
-        is3D = !is3D // Invierte el estado
+        isStyleLoading = true
 
-        if (is3D) {
-            Log.d("MapStyle", "Cambiando a 3D")
-            map.setStyle(styleDARK, Style.OnStyleLoaded { style ->
-                onStyleLoaded(style) // Llama a la función para recargar todo
-                // Inclina el mapa automáticamente al entrar en 3D
-                map.animateCamera(CameraUpdateFactory.newCameraPosition(
-                    CameraPosition.Builder(map.cameraPosition) // <-- CORREGIDO
-                        .tilt(60.0) // 60 grados de inclinación
-                        .build()
-                ), 1000)
-            })
-            mapStyleFab.setImageResource(android.R.drawable.ic_menu_view) // Ícono "2D"
+        // Incrementa el estado y vuelve a 0 si pasa de 2
+        // (0 = Claro, 1 = Oscuro, 2 = Satélite)
+        currentMapStyleState = (currentMapStyleState + 1) % 3
 
-        } else {
-            Log.d("MapStyle", "Cambiando a 2D")
-            map.setStyle(styleLIGHT, Style.OnStyleLoaded { style ->
-                onStyleLoaded(style) // Llama a la función para recargar todo
-                // Resetea la inclinación
-                map.animateCamera(CameraUpdateFactory.newCameraPosition(
-                    CameraPosition.Builder(map.cameraPosition) // <-- CORREGIDO
-                        .tilt(0.0) // 0 grados de inclinación
-                        .build()
-                ), 1000)
-            })
-            mapStyleFab.setImageResource(android.R.drawable.ic_menu_mapmode) // Ícono original
+        when (currentMapStyleState) {
+
+            0 -> { // ESTADO 0: Aplicar CLARO
+                Log.d("MapStyle", "Cambiando a Modo Claro")
+                map.setStyle(styleLIGHT, Style.OnStyleLoaded { style ->
+                    onStyleLoaded(style) // Recarga todo
+                })
+
+            }
+
+            1 -> { // ESTADO 1: Aplicar OSCURO
+                Log.d("MapStyle", "Cambiando a Modo Oscuro")
+                map.setStyle(styleDARK, Style.OnStyleLoaded { style ->
+                    onStyleLoaded(style) // Recarga todo
+                })
+            }
+
+            2 -> { // ESTADO 2: Aplicar SATÉLITE
+                Log.d("MapStyle", "Cambiando a Modo Satélite")
+                map.setStyle(styleSATELLITE_HYBRID, Style.OnStyleLoaded { style ->
+                    onStyleLoaded(style) // Recarga todo
+                })
+            }
         }
     }
 
@@ -924,7 +1068,7 @@ class MainActivity : AppCompatActivity(),
                     }
                     fetchBusData(centerLocation)
                 }
-                delay(20000)
+                delay(10000)
             }
         }
     }
@@ -1040,7 +1184,7 @@ class MainActivity : AppCompatActivity(),
                     .build())
             locationComponent.isLocationComponentEnabled = true
             locationComponent.cameraMode = CameraMode.TRACKING
-            locationComponent.renderMode = RenderMode.COMPASS
+            locationComponent.renderMode = RenderMode.NORMAL
             requestFreshLocation()
         } catch (e: Exception) {
             Log.e("ShowUserLocation", "Error al activar LocationComponent", e)

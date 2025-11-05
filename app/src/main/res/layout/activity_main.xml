@@ -11,7 +11,79 @@
         android:id="@+id/mapView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:contentDescription="Mapa interactivo de transporte y turismo" />
+        android:contentDescription="turisnuble" />
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/search_card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="16dp"
+        app:cardCornerRadius="28dp"
+        app:cardElevation="8dp">
+
+        <androidx.appcompat.widget.SearchView
+            android:id="@+id/search_view"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:iconifiedByDefault="false"
+            app:queryHint="Buscar paradero, ruta o lugar..."
+            android:background="@android:color/transparent"
+            app:searchIcon="@android:drawable/ic_menu_search" />
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- INICIO: CÓDIGO AÑADIDO -->
+    <!-- Este es el RecyclerView para mostrar los resultados de la búsqueda. -->
+    <!-- Lo he posicionado para que aparezca debajo de la barra de búsqueda. -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/search_results_recyclerview"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="70dp"
+        android:layout_marginBottom="50dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:elevation="8dp"
+        android:background="@color/background"
+        android:visibility="gone"
+        app:layout_anchor="@id/search_card"
+        app:layout_anchorGravity="bottom"
+        tools:visibility="visible"
+        tools:listitem="@layout/item_search_result" />
+    <!-- FIN: CÓDIGO AÑADIDO -->
+
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/map_style_fab"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        app:layout_anchor="@id/bottom_sheet"
+        app:layout_anchorGravity="top|start"
+        android:src="@android:drawable/ic_menu_mapmode"
+        android:contentDescription="Cambiar vista 2D/3D"
+        app:elevation="6dp"
+        app:hoveredFocusedTranslationZ="8dp"
+        app:pressedTranslationZ="12dp"
+        app:rippleColor="@android:color/white"
+        app:fabSize="mini"
+        android:translationY="-40dp"/>
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/location_fab"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        app:layout_anchor="@id/bottom_sheet"
+        app:layout_anchorGravity="top|end"
+        android:src="@android:drawable/ic_menu_mylocation"
+        android:contentDescription="Centrar en mi ubicación"
+        android:translationY="-40dp"
+        app:elevation="6dp"
+        app:hoveredFocusedTranslationZ="8dp"
+        app:pressedTranslationZ="12dp"
+        app:rippleColor="@android:color/white" />
 
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/bottom_sheet"
@@ -32,35 +104,5 @@
 
         </FrameLayout>
     </com.google.android.material.card.MaterialCardView>
-
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/map_style_fab"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        app:layout_anchor="@id/bottom_sheet"
-        app:layout_anchorGravity="top|start"
-        android:src="@android:drawable/ic_menu_mapmode"
-        android:contentDescription="Cambiar vista 2D/3D"
-        app:elevation="6dp"
-        app:hoveredFocusedTranslationZ="8dp"
-        app:pressedTranslationZ="12dp"
-        app:rippleColor="@android:color/white"
-        app:fabSize="mini"
-        android:translationY="-40dp"/>
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/location_fab"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        app:layout_anchor="@id/bottom_sheet"
-        app:layout_anchorGravity="top|end"
-        android:src="@android:drawable/ic_menu_mylocation"
-        android:contentDescription="Centrar en mi ubicación"
-        android:translationY="-40dp"
-        app:elevation="6dp"
-        app:hoveredFocusedTranslationZ="8dp"
-        app:pressedTranslationZ="12dp"
-        app:rippleColor="@android:color/white" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
