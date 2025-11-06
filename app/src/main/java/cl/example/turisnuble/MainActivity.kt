@@ -66,6 +66,9 @@ import org.maplibre.android.style.sources.GeoJsonSource
 import retrofit2.Retrofit
 import retrofit2.converter.protobuf.ProtoConverterFactory
 
+import android.widget.ImageButton
+import android.widget.TextView
+
 class MainActivity : AppCompatActivity(),
     OnMapReadyCallback,
     RouteDrawer,
@@ -86,6 +89,11 @@ class MainActivity : AppCompatActivity(),
     private lateinit var searchView: androidx.appcompat.widget.SearchView
     private lateinit var searchResultsRecyclerView: androidx.recyclerview.widget.RecyclerView
     private lateinit var searchAdapter: SearchAdapter
+
+    private lateinit var customNotificationView: View
+    private lateinit var customNotificationMessage: TextView
+    private lateinit var customNotificationDismiss: ImageButton
+
     private val sharedViewModel: SharedViewModel by viewModels()
     private var selectedRouteId: String? = null
     private var selectedDirectionId: Int? = null
@@ -255,7 +263,8 @@ class MainActivity : AppCompatActivity(),
                     } else {
                         "Toma la Línea ${route.shortName} en ${bestStopA.name} y baja en ${bestStopB.name}"
                     }
-                    Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
+                    //Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
+                    showCustomNotification(toastMessage)
 
                     hideDetailFragment()
                     drawRouteSegment(route, directionId, bestStopA, bestStopB)
@@ -267,7 +276,8 @@ class MainActivity : AppCompatActivity(),
                     } else {
                         "No se encontró una ruta de micro directa en los paraderos cercanos"
                     }
-                    Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
+                    //Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
+                    showCustomNotification(toastMessage)
                     Log.d("Directions", "No se encontró NINGUNA ruta válida A -> B.")
                 }
             }
@@ -298,7 +308,6 @@ class MainActivity : AppCompatActivity(),
         MapLibre.getInstance(this)
         setContentView(R.layout.activity_main)
 
-        GtfsDataManager.loadData(assets)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
@@ -349,6 +358,15 @@ class MainActivity : AppCompatActivity(),
             onSearchResultClicked(searchResult)
         }
 
+        customNotificationView = findViewById(R.id.custom_notification_container)
+        customNotificationMessage = customNotificationView.findViewById(R.id.tv_notification_message)
+        customNotificationDismiss = customNotificationView.findViewById(R.id.btn_notification_dismiss)
+
+        // Configura el botón de cierre (la 'X')
+        customNotificationDismiss.setOnClickListener {
+            hideCustomNotification()
+        }
+
         // 2. Inicializamos el RecyclerView
         searchResultsRecyclerView = findViewById(R.id.search_results_recyclerview)
         searchResultsRecyclerView.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
@@ -390,26 +408,69 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    private fun showCustomNotification(message: String) {
+        customNotificationMessage.text = message
+        customNotificationView.visibility = View.VISIBLE
+    }
+
+    /**
+     * Oculta la vista de notificación personalizada.
+     */
+    private fun hideCustomNotification() {
+        customNotificationView.visibility = View.GONE
+    }
+
     /**
      * Realiza la búsqueda en todos los datos y actualiza el adaptador.
      */
     private fun performSearch(query: String) {
-        // 1. Buscamos en Paraderos
+        // 1. Buscamos en Paraderos (SIN CAMBIOS)
         val paraderos = GtfsDataManager.stops.values
             .filter { it.name.lowercase().contains(query) || it.stopId.equals(query, ignoreCase = true) }
             .map { SearchResult(SearchResultType.PARADERO, it.name, "Paradero ${it.stopId}", it) }
 
-        // 2. Buscamos en Rutas
+
+        // --- INICIO DE LA MODIFICACIÓN SIMPLE ---
+
+        // 2. Buscamos en Rutas (MODIFICADO)
+
+        val queryLower = query.lowercase()
+        var queryRutas = query // Por defecto, buscamos el texto tal cual
+
+        // CASO 1: El usuario escribió "linea" o "línea" (y nada más)
+        if (queryLower == "linea" || queryLower == "línea") {
+            // Mostramos todas las rutas. La forma más simple es buscar un string vacío.
+            queryRutas = ""
+        }
+        // CASO 2: El usuario escribió "linea 13" o "línea 13" (con espacio)
+        else if (queryLower.startsWith("linea ")) {
+            queryRutas = query.substring(6).trim() // 6 = "linea ".length
+        } else if (queryLower.startsWith("línea ")) {
+            queryRutas = query.substring(6).trim() // 6 = "línea ".length
+        }
+
         val rutas = GtfsDataManager.routes.values
-            .filter { it.shortName.lowercase().contains(query) || it.longName.lowercase().contains(query) }
+            .filter {
+                // Filtro 1: El texto original está en el nombre corto o largo
+                // (Ej: si un longName fuera "Linea 13 Centro", lo encontraría aquí)
+                it.shortName.lowercase().contains(query) || it.longName.lowercase().contains(query) ||
+
+                        // Filtro 2: Si modificamos la consulta (queryRutas != query)
+                        // (Ej: query="línea", queryRutas="" -> MUESTRA TODAS)
+                        // (Ej: query="línea 13", queryRutas="13" -> MUESTRA LA 13)
+                        (queryRutas != query && (it.shortName.lowercase().contains(queryRutas) || it.longName.lowercase().contains(queryRutas)))
+            }
             .map { SearchResult(SearchResultType.RUTA, it.shortName, it.longName, it) }
 
-        // 3. Buscamos en Puntos de Turismo
+        // --- FIN DE LA MODIFICACIÓN SIMPLE ---
+
+
+        // 3. Buscamos en Puntos de Turismo (SIN CAMBIOS)
         val turismo = DatosTurismo.puntosTuristicos
             .filter { it.nombre.lowercase().contains(query) }
             .map { SearchResult(SearchResultType.TURISMO, it.nombre, it.direccion, it) }
 
-        // 4. Combinamos todas las listas y actualizamos el adapter
+        // 4. Combinamos todas las listas y actualizamos el adapter (SIN CAMBIOS)
         val results = (paraderos + rutas + turismo).sortedBy { it.title }
 
         if (results.isNotEmpty()) {
@@ -424,7 +485,8 @@ class MainActivity : AppCompatActivity(),
      * Se llama cuando el usuario hace click en un resultado de la lista.
      */
     private fun onSearchResultClicked(result: SearchResult) {
-        Toast.makeText(this, "Mostrando: ${result.title}", Toast.LENGTH_SHORT).show()
+        //Toast.makeText(this, "Mostrando: ${result.title}", Toast.LENGTH_SHORT).show()
+        showCustomNotification("Mostrando: ${result.title}")
 
         when (result.type) {
             SearchResultType.PARADERO -> {
@@ -443,11 +505,12 @@ class MainActivity : AppCompatActivity(),
             }
         }
 
+
+
         // Ocultamos todo
-        searchView.clearFocus()
-        hideSearchResults()
-        // Opcional: si quieres que la barra de búsqueda muestre lo que seleccionaste
-        searchView.setQuery(result.title, false)
+        searchView.setQuery("", false) // 1. Limpia el texto de la barra
+        searchView.clearFocus()       // 2. Oculta el teclado
+        hideSearchResults()           // 3. Oculta la lista de resultados
     }
 
     /**
@@ -473,7 +536,7 @@ class MainActivity : AppCompatActivity(),
                 val query = newText?.trim()
 
                 // Si la búsqueda está vacía o es muy corta, ocultamos la lista
-                if (query.isNullOrBlank() || query.length < 2) {
+                if (query.isNullOrBlank()) {
                     hideSearchResults()
                 } else {
                     // Si hay texto, realizamos la búsqueda
@@ -715,7 +778,8 @@ class MainActivity : AppCompatActivity(),
         }
         val routesForStop = GtfsDataManager.getRoutesForStop(stopId)
         if (routesForStop.isNotEmpty()) {
-            Toast.makeText(this, "Mostrando rutas para el paradero $stopId", Toast.LENGTH_SHORT).show()
+            //Toast.makeText(this, "Mostrando rutas para el paradero $stopId", Toast.LENGTH_SHORT).show()
+            showCustomNotification("Mostrando rutas para el paradero $stopId")
             if (supportFragmentManager.backStackEntryCount > 0) {
                 supportFragmentManager.popBackStack()
                 findViewById<View>(R.id.bottom_sheet_content).visibility = View.VISIBLE
@@ -724,7 +788,8 @@ class MainActivity : AppCompatActivity(),
             viewPager.setCurrentItem(2, true)
             bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
         } else {
-            Toast.makeText(this, "No se encontraron rutas para el paradero $stopId", Toast.LENGTH_SHORT).show()
+            // Toast.makeText(this, "No se encontraron rutas para el paradero $stopId", Toast.LENGTH_SHORT).show()
+            showCustomNotification("No se encontraron rutas para el paradero $stopId")
             sharedViewModel.setRouteFilter(emptyList())
         }
     }
@@ -1386,7 +1451,8 @@ class MainActivity : AppCompatActivity(),
                     val directionId = bestRouteFound.directionId
 
                     Log.d("Directions", "Ruta válida: ${route.shortName} (Desde ${bestStopA.name} a ${bestStopB.name})")
-                    Toast.makeText(this, "Toma la Línea ${route.shortName} en ${bestStopA.name}", Toast.LENGTH_LONG).show()
+                    // Toast.makeText(this, "Toma la Línea ${route.shortName} en ${bestStopA.name}", Toast.LENGTH_LONG).show()
+                    showCustomNotification("Toma la Línea ${route.shortName} en ${bestStopA.name}") //
 
                     drawRouteSegment(route, directionId, bestStopA, bestStopB)
 
@@ -1398,7 +1464,8 @@ class MainActivity : AppCompatActivity(),
                     } else {
                         "No se encontró una ruta de bus directa"
                     }
-                    Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
+                    //Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
+                    showCustomNotification(toastMessage)
                     Log.d("Directions", "No se encontró ruta válida A -> B.")
 
                     val boundsBuilder = LatLngBounds.Builder()
