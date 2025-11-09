@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Simplified layout with better scroll behavior - image inside scrollable area -->
 <FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -8,8 +7,6 @@
     android:layout_height="match_parent"
     android:background="?android:colorBackground">
 
-    <!-- Replaced CoordinatorLayout with simple FrameLayout for better scroll behavior -->
-    <!-- Main scrollable content with image inside -->
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -21,8 +18,6 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- Moved image inside NestedScrollView so entire screen is scrollable -->
-            <!-- Hero image with rounded bottom corners -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="280dp"
@@ -37,7 +32,6 @@
                     android:contentDescription="Imagen del punto turístico"
                     tools:src="@drawable/catedral_chillan" />
 
-                <!-- Gradient overlay for better visual -->
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="120dp"
@@ -46,7 +40,6 @@
 
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Main content card -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -60,16 +53,23 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
-                    <!-- Title and address -->
-                    <TextView
-                        android:id="@+id/nombre_punto_turistico"
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textSize="24sp"
-                        android:textStyle="bold"
-                        android:textColor="?android:attr/textColorPrimary"
-                        tools:text="Catedral de Chillán" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
 
+                        <TextView
+                            android:id="@+id/nombre_punto_turistico"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:textSize="24sp"
+                            android:textStyle="bold"
+                            android:textColor="?android:attr/textColorPrimary"
+                            tools:text="Catedral de Chillán" />
+
+                    </LinearLayout>
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -96,7 +96,6 @@
 
                     </LinearLayout>
 
-                    <!-- Action button -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_como_llegar"
                         android:layout_width="match_parent"
@@ -110,7 +109,6 @@
 
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Nearby stops section -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -123,7 +121,6 @@
                 android:paddingTop="8dp"
                 android:paddingBottom="8dp" />
 
-            <!-- Empty state for nearby stops -->
             <TextView
                 android:id="@+id/no_paraderos_cercanos"
                 android:layout_width="match_parent"
@@ -134,7 +131,6 @@
                 android:gravity="center"
                 android:visibility="gone" />
 
-            <!-- Nearby stops list -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/recycler_view_paraderos_cercanos"
                 android:layout_width="match_parent"
@@ -152,8 +148,6 @@
 
     </androidx.core.widget.NestedScrollView>
 
-    <!-- Back button now overlays the entire layout at top-left -->
-    <!-- Back button overlay -->
     <ImageButton
         android:id="@+id/back_button"
         android:layout_width="48dp"

@@ -73,6 +73,16 @@
             android:layout_weight="0"
             android:text="Cómo Llegar" />
 
+        <CheckBox
+            android:id="@+id/cb_favorite_paradero"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:button="@drawable/selector_favorite_star"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
+
     </LinearLayout>
 
 </com.google.android.material.card.MaterialCardView>
