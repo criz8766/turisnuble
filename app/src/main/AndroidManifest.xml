@@ -28,6 +28,15 @@
             android:name="cl.example.turisnuble.MainActivity"
             android:exported="false">
         </activity>
+
+        <activity
+            android:name="cl.example.turisnuble.LoginActivity"
+            android:exported="false">
+        </activity>
+
+        <activity
+            android:name="cl.example.turisnuble.ProfileActivity"
+            android:exported="false" />
     </application>
 
 </manifest>

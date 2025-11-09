@@ -69,6 +69,14 @@ import retrofit2.converter.protobuf.ProtoConverterFactory
 import android.widget.ImageButton
 import android.widget.TextView
 
+// --- IMPORTACIONES PARA EL MENÚ ---
+import android.content.Intent
+import android.widget.ImageView // Necesario para el optionsMenuButton
+import androidx.appcompat.widget.PopupMenu
+import com.google.firebase.auth.FirebaseAuth
+// --- FIN IMPORTACIONES AÑADIDAS ---
+
+
 class MainActivity : AppCompatActivity(),
     OnMapReadyCallback,
     RouteDrawer,
@@ -104,6 +112,9 @@ class MainActivity : AppCompatActivity(),
     private var currentSelectedStopId: String? = null
     private val turismoMarkers = mutableListOf<Marker>()
     private var peekHeightInPixels: Int = 0
+
+    // --- VARIABLE DE AUTENTICACIÓN ---
+    private lateinit var auth: FirebaseAuth
 
     // --- VARIABLES AÑADIDAS PARA OSCURO/CLARO/SATELITE ---
     private lateinit var mapStyleFab: FloatingActionButton
@@ -308,6 +319,9 @@ class MainActivity : AppCompatActivity(),
         MapLibre.getInstance(this)
         setContentView(R.layout.activity_main)
 
+        // --- INICIALIZACIÓN DE AUTH ---
+        auth = FirebaseAuth.getInstance()
+
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
@@ -406,7 +420,62 @@ class MainActivity : AppCompatActivity(),
                 sharedViewModel.nearbyStops.value?.let { showParaderosOnMap(it) }
             }
         }
-    }
+
+        // --- LÓGICA DEL MENÚ DE OPCIONES --- AÑADIDO Y MODIFICADO ---
+        val optionsMenuButton = findViewById<ImageView>(R.id.optionsMenuButton)
+        optionsMenuButton.setOnClickListener { view ->
+            val popup = PopupMenu(this, view)
+            popup.menuInflater.inflate(R.menu.main_options_menu, popup.menu)
+
+            // --- INICIO DE LA LÓGICA DINÁMICA ---
+            val currentUser = auth.currentUser
+            val menu = popup.menu
+
+            if (currentUser == null) {
+                // Es un INVITADO (auth.currentUser es null)
+                menu.findItem(R.id.menu_perfil).isVisible = false
+                menu.findItem(R.id.menu_favoritos).isVisible = false
+                menu.findItem(R.id.menu_sugerencias).isVisible = false
+            } else {
+                // Es un USUARIO REGISTRADO
+                menu.findItem(R.id.menu_perfil).isVisible = true
+                menu.findItem(R.id.menu_favoritos).isVisible = true
+                menu.findItem(R.id.menu_sugerencias).isVisible = true
+            }
+            // "Volver a iniciar sesión" (menu_logout) es visible para ambos
+            // --- FIN DE LA LÓGICA DINÁMICA ---
+
+
+            popup.setOnMenuItemClickListener { menuItem ->
+                when (menuItem.itemId) {
+                    R.id.menu_perfil -> {
+                        // --- INICIO CAMBIO ---
+                        // Toast.makeText(this, "Ir a Perfil (pendiente)", Toast.LENGTH_SHORT).show()
+                        startActivity(Intent(this, ProfileActivity::class.java))
+                        // --- FIN CAMBIO ---
+                        true
+                    }
+                    R.id.menu_favoritos -> {
+                        Toast.makeText(this, "Ir a Favoritos (pendiente)", Toast.LENGTH_SHORT).show()
+                        true
+                    }
+                    R.id.menu_sugerencias -> {
+                        Toast.makeText(this, "Ir a Sugerencias (pendiente)", Toast.LENGTH_SHORT).show()
+                        true
+                    }
+                    R.id.menu_logout -> {
+                        cerrarSesion() // Esta función ya existe
+                        true
+                    }
+                    else -> false
+                }
+            }
+
+            popup.show()
+        }
+        // --- FIN LÓGICA DEL MENÚ ---
+
+    } // --- FIN DE onCreate ---
 
     private fun showCustomNotification(message: String) {
         customNotificationMessage.text = message
@@ -1419,6 +1488,8 @@ class MainActivity : AppCompatActivity(),
                     val routesA = GtfsDataManager.getRoutesForStop(stopA.stopId)
                     val routeSetA = routesA.map { it.route.routeId to it.directionId }.toSet()
 
+
+
                     for (stopB in stopsNearB) {
                         if (stopA.stopId == stopB.stopId) continue
 
@@ -1499,4 +1570,17 @@ class MainActivity : AppCompatActivity(),
     override fun onSaveInstanceState(outState: Bundle) { super.onSaveInstanceState(outState); mapView.onSaveInstanceState(outState) }
     override fun onLowMemory() { super.onLowMemory(); mapView.onLowMemory() }
     override fun onDestroy() { super.onDestroy(); mapView.onDestroy() }
+
+    // --- FUNCIÓN CERRAR SESIÓN --- (Sin cambios, solo movida al final)
+    private fun cerrarSesion() {
+        auth.signOut() // Cerrar sesión en Firebase
+
+        // Volver a LoginActivity
+        val intent = Intent(this, LoginActivity::class.java)
+        // Limpiar la pila de actividades para que el usuario no pueda "volver"
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        startActivity(intent)
+
+        finish() // Finalizar MainActivity
+    }
 }

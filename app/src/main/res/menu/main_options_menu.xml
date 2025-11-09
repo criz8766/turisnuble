@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/menu_perfil"
+        android:title="Mi Perfil" />
+    <item
+        android:id="@+id/menu_favoritos"
+        android:title="Mis Favoritos" />
+    <item
+        android:id="@+id/menu_sugerencias"
+        android:title="Sugerencias" />
+    <item
+        android:id="@+id/menu_logout"
+        android:title="Cerrar Sesión" />
+</menu>

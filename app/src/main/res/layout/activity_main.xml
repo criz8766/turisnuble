@@ -23,14 +23,32 @@
         app:cardCornerRadius="28dp"
         app:cardElevation="8dp">
 
-        <androidx.appcompat.widget.SearchView
-            android:id="@+id/search_view"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:iconifiedByDefault="false"
-            app:queryHint="Buscar paradero, ruta o lugar..."
-            android:background="@android:color/transparent"
-            app:searchIcon="@android:drawable/ic_menu_search" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <androidx.appcompat.widget.SearchView
+                android:id="@+id/search_view"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                app:iconifiedByDefault="false"
+                app:queryHint="Buscar paradero, ruta o lugar..."
+                android:background="@android:color/transparent"
+                app:searchIcon="@android:drawable/ic_menu_search" />
+
+            <ImageView
+                android:id="@+id/optionsMenuButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:src="@drawable/ic_options_menu"
+                android:padding="12dp"
+                android:contentDescription="Opciones"
+                android:background="?attr/selectableItemBackgroundBorderless" />
+
+        </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
     <include

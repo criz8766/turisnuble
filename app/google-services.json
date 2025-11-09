@@ -12,7 +12,20 @@
           "package_name": "cl.example.turisnuble"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "258321787270-hohgn1eu52m6iec3l118a7h855rqcdtu.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "cl.example.turisnuble",
+            "certificate_hash": "aaa6e46764d6b35d4caa35629001795af0b397a7"
+          }
+        },
+        {
+          "client_id": "258321787270-eveshn6rio8vemtsf69ddg72t34rs8nb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyC2SxayIGBe8eAwl7i_8aQY_kI24EaGbq8"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "258321787270-eveshn6rio8vemtsf69ddg72t34rs8nb.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
