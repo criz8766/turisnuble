@@ -2,26 +2,31 @@ package cl.example.turisnuble
 
 import android.content.Context
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.TextView
+import android.widget.Button
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import android.widget.Button // --- AÑADIDO --- Import para el Botón
-
-// FIX: Definición canónica de MapMover para todo el paquete.
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.ktx.auth
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.ValueEventListener
+import com.google.firebase.ktx.Firebase
 
 class DetalleRutaFragment : Fragment() {
 
     private var mapMover: MapMover? = null
-    private var paraderoActionHandler: ParaderoActionHandler? = null // --- AÑADIDO ---
+    private var paraderoActionHandler: ParaderoActionHandler? = null
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
-        // --- MODIFICADO --- Manejo de ambas interfaces
         if (context is MapMover) {
             mapMover = context
         } else {
@@ -33,7 +38,6 @@ class DetalleRutaFragment : Fragment() {
         } else {
             throw RuntimeException("$context must implement ParaderoActionHandler")
         }
-        // --- FIN MODIFICACIÓN ---
     }
 
     override fun onCreateView(
@@ -55,7 +59,6 @@ class DetalleRutaFragment : Fragment() {
             val route = GtfsDataManager.routes[routeId]
             val directionText = if (directionId == 0) "Ida" else "Vuelta"
 
-            // Lógica para agrupar 13A y 13B en el título
             val shortName = route?.shortName
             val lineaText = if (shortName == "13A" || shortName == "13B") "13" else shortName
 
@@ -63,19 +66,15 @@ class DetalleRutaFragment : Fragment() {
 
             val paraderos = GtfsDataManager.getStopsForRoute(routeId, directionId)
 
-            // --- MODIFICADO --- Creación del adapter
             recyclerView.adapter = ParaderosDetalleAdapter(
                 paraderos,
                 onItemClick = { paraderoSeleccionado ->
-                    // Al hacer clic, le pedimos a MainActivity que mueva el mapa
-                    mapMover?.centerMapOnPoint(paraderoSeleccionado.location.latitude, paraderoSeleccionado.location.longitude)
+                    mapMover?.centerMapOnPoint(paraderoSeleccionado.location.latitude, paraderoSeleccionado.location.longitude) // Corregido: .lat .lon
                 },
                 onGetDirectionsClick = { paraderoSeleccionado ->
-                    // Al hacer clic en el botón, llamamos a la interfaz de "Cómo Llegar"
                     paraderoActionHandler?.onGetDirectionsToStop(paraderoSeleccionado)
                 }
             )
-            // --- FIN MODIFICACIÓN ---
         }
 
         backButton.setOnClickListener {
@@ -88,7 +87,7 @@ class DetalleRutaFragment : Fragment() {
     override fun onDetach() {
         super.onDetach()
         mapMover = null
-        paraderoActionHandler = null // --- AÑADIDO ---
+        paraderoActionHandler = null
     }
 
     companion object {
@@ -103,18 +102,40 @@ class DetalleRutaFragment : Fragment() {
     }
 }
 
-// --- MODIFICADO --- El Adapter ahora acepta dos listeners
 class ParaderosDetalleAdapter(
     private val paraderos: List<GtfsStop>,
     private val onItemClick: (GtfsStop) -> Unit,
-    private val onGetDirectionsClick: (GtfsStop) -> Unit // --- AÑADIDO ---
+    private val onGetDirectionsClick: (GtfsStop) -> Unit
 ) :
     RecyclerView.Adapter<ParaderosDetalleAdapter.ParaderoViewHolder>() {
+
+    // --- INICIO LÓGICA DE FAVORITOS (ADAPTER) ---
+    private val auth: FirebaseAuth = Firebase.auth
+    private val currentUser = auth.currentUser
+    private var favoriteParaderoIds = setOf<String>()
+
+    init {
+        // Si el usuario está logueado, carga sus paraderos favoritos
+        currentUser?.uid?.let { userId ->
+            FavoritesManager.getParaderoFavRef(userId, "").addValueEventListener(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    favoriteParaderoIds = snapshot.children.mapNotNull { it.key }.toSet()
+                    notifyDataSetChanged() // Recarga la lista para mostrar estrellas
+                }
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w("ParaderosDetDetalle", "Error al cargar paraderos favoritos", error.toException())
+                }
+            })
+        }
+    }
+    // --- FIN LÓGICA DE FAVORITOS (ADAPTER) ---
 
     class ParaderoViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val stopSequence: TextView = view.findViewById(R.id.stop_sequence)
         val stopName: TextView = view.findViewById(R.id.stop_name)
-        val getDirectionsButton: Button = view.findViewById(R.id.btnGetDirectionsToStop) // --- AÑADIDO ---
+        val getDirectionsButton: Button = view.findViewById(R.id.btnGetDirectionsToStop)
+        // --- AÑADIDO: El botón de favorito ---
+        val favoriteButton: ImageButton = view.findViewById(R.id.btn_favorite_paradero)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ParaderoViewHolder {
@@ -129,16 +150,48 @@ class ParaderosDetalleAdapter(
         holder.stopSequence.text = paradero.stopId
         holder.stopName.text = paradero.name
 
-        // Clic en todo el item
+        // Clic en todo el item (sin cambios)
         holder.itemView.setOnClickListener {
             onItemClick(paradero)
         }
 
-        // --- AÑADIDO --- Clic solo en el botón
+        // Clic solo en el botón "Cómo Llegar" (sin cambios)
         holder.getDirectionsButton.setOnClickListener {
             onGetDirectionsClick(paradero)
         }
-        // --- FIN ---
+
+        // --- INICIO LÓGICA DE FAVORITOS (PARADEROS) ---
+        if (currentUser == null) {
+            // Si es INVITADO, ocultar botón
+            holder.favoriteButton.visibility = View.GONE
+        } else {
+            // Si es USUARIO, mostrar y configurar
+            holder.favoriteButton.visibility = View.VISIBLE
+            val userId = currentUser.uid
+            val isFavorite = favoriteParaderoIds.contains(paradero.stopId)
+
+            // 1. Poner el ícono correcto
+            if (isFavorite) {
+                holder.favoriteButton.setImageResource(R.drawable.ic_star_filled)
+            } else {
+                holder.favoriteButton.setImageResource(R.drawable.ic_star_border)
+            }
+
+            // 2. Configurar el click
+            holder.favoriteButton.setOnClickListener {
+                if (favoriteParaderoIds.contains(paradero.stopId)) {
+                    // Ya es favorito -> Quitar
+                    FavoritesManager.removeFavoriteParadero(userId, paradero.stopId)
+                    Toast.makeText(holder.itemView.context, "Paradero eliminado de favoritos", Toast.LENGTH_SHORT).show()
+                } else {
+                    // No es favorito -> Añadir
+                    FavoritesManager.addFavoriteParadero(userId, paradero)
+                    Toast.makeText(holder.itemView.context, "Paradero añadido a favoritos", Toast.LENGTH_SHORT).show()
+                }
+                // El listener de la BD actualiza el ícono
+            }
+        }
+        // --- FIN LÓGICA DE FAVORITOS (PARADEROS) ---
     }
 
     override fun getItemCount() = paraderos.size
