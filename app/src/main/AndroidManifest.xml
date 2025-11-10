@@ -37,6 +37,11 @@
         <activity
             android:name="cl.example.turisnuble.ProfileActivity"
             android:exported="false" />
+
+        <activity
+            android:name="cl.example.turisnuble.FavoritosActivity"
+            android:exported="false" />
     </application>
+
 
 </manifest>

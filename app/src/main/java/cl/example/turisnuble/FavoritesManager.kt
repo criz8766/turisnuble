@@ -134,23 +134,32 @@ object FavoritesManager {
                 snapshot.child("favoritos_turismo").children.forEach {
                     val id = it.key ?: return@forEach
                     val name = it.child("nombre").value as? String ?: "Desconocido"
-                    allFavorites.add(FavoriteItem(id, name, FavoriteType.TURISMO, it.value as Map<String, Any>))
+
+                    // --- CORRECCIÓN 1 ---
+                    val dataMapTurismo = it.value as? Map<String, Any> ?: emptyMap()
+                    allFavorites.add(FavoriteItem(id, name, FavoriteType.TURISMO, dataMapTurismo))
                 }
                 // 2. Paraderos
                 snapshot.child("favoritos_paraderos").children.forEach {
                     val id = it.key ?: return@forEach
                     val name = it.child("name").value as? String ?: "Paradero"
-                    allFavorites.add(FavoriteItem(id, name, FavoriteType.PARADERO, it.value as Map<String, Any>))
+
+                    // --- CORRECCIÓN 2 ---
+                    val dataMapParadero = it.value as? Map<String, Any> ?: emptyMap()
+                    allFavorites.add(FavoriteItem(id, name, FavoriteType.PARADERO, dataMapParadero))
                 }
                 // 3. Rutas
                 snapshot.child("favoritos_rutas").children.forEach {
                     val id = it.key ?: return@forEach
-                    // Usamos shortName para mostrar "Línea X"
                     val shortName = it.child("shortName").value as? String ?: ""
                     val displayName = if (shortName.isNotEmpty()) "Línea $shortName" else "Ruta"
-                    allFavorites.add(FavoriteItem(id, displayName, FavoriteType.RUTA, it.value as Map<String, Any>))
+
+                    // --- CORRECCIÓN 3 ---
+                    val dataMapRuta = it.value as? Map<String, Any> ?: emptyMap()
+                    allFavorites.add(FavoriteItem(id, displayName, FavoriteType.RUTA, dataMapRuta))
                 }
 
+                // Ahora esto se llamará correctamente
                 onResult(allFavorites)
             }
 
