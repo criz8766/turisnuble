@@ -76,6 +76,11 @@ import androidx.appcompat.widget.PopupMenu
 import com.google.firebase.auth.FirebaseAuth
 // --- FIN IMPORTACIONES AÑADIDAS ---
 
+// --- ### USA SOLAMENTE ESTAS DOS LÍNEAS PARA EXPRESSIONS ### ---
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.expressions.Expression.*
+// --- ### Y ELIMINA CUALQUIER OTRA import org.maplibre.android.style.expressions... ### ---
+
 
 class MainActivity : AppCompatActivity(),
     OnMapReadyCallback,
@@ -112,6 +117,8 @@ class MainActivity : AppCompatActivity(),
     private var currentSelectedStopId: String? = null
     private val turismoMarkers = mutableListOf<Marker>()
     private var peekHeightInPixels: Int = 0
+
+    private var currentInfoMarker: Marker? = null
 
     // --- VARIABLE DE AUTENTICACIÓN ---
     private lateinit var auth: FirebaseAuth
@@ -456,7 +463,10 @@ class MainActivity : AppCompatActivity(),
                         true
                     }
                     R.id.menu_favoritos -> {
-                        Toast.makeText(this, "Ir a Favoritos (pendiente)", Toast.LENGTH_SHORT).show()
+                        // ### INICIO DE LA MODIFICACIÓN ###
+                        // Se reemplaza el Toast por el Intent
+                        startActivity(Intent(this, FavoritosActivity::class.java))
+                        // ### FIN DE LA MODIFICACIÓN ###
                         true
                     }
                     R.id.menu_sugerencias -> {
@@ -476,6 +486,54 @@ class MainActivity : AppCompatActivity(),
         // --- FIN LÓGICA DEL MENÚ ---
 
     } // --- FIN DE onCreate ---
+
+
+    private fun handleBusClick(feature: Feature) {
+        val routeId = feature.getStringProperty("routeId")
+        val directionId = feature.getNumberProperty("directionId")?.toInt()
+        val licensePlate = feature.getStringProperty("licensePlate")
+        val geometry = feature.geometry() // Obtener la geometría del bus
+
+        if (routeId == null || directionId == null || geometry !is Point) {
+            Log.w("HandleBusClick", "Bus click con datos incompletos.")
+            return
+        }
+
+        val route = GtfsDataManager.routes[routeId]
+        if (route == null) {
+            Log.w("HandleBusClick", "No se encontró la ruta $routeId.")
+            return
+        }
+
+        // 1. Dibuja la ruta (Esto limpia el globo anterior)
+        drawRoute(route, directionId)
+
+        // 2. Muestra el globo de información (Marker con InfoWindow)
+
+        val busLocation = LatLng(geometry.latitude(), geometry.longitude())
+
+        // --- ### INICIO DE LA MODIFICACIÓN ### ---
+        // Preparamos los textos para el Adapter
+        val directionStr = if (directionId == 0) "Ida" else "Vuelta"
+        val infoTitle = "Línea ${route.shortName} ($directionStr)"
+        val infoSnippet = if (licensePlate.isNullOrBlank()) "Patente no disponible" else licensePlate
+        // --- ### FIN DE LA MODIFICACIÓN ### ---
+
+
+        // Crear un icono 1x1 transparente para que el marcador sea invisible
+        val iconFactory = IconFactory.getInstance(this@MainActivity)
+        val transparentBitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        val transparentIcon = iconFactory.fromBitmap(transparentBitmap)
+
+        val markerOptions = MarkerOptions()
+            .position(busLocation)
+            .title(infoTitle)
+            .snippet(infoSnippet)// El título ahora incluye (Ida) o (Vuelta)
+            .icon(transparentIcon) // Usar el icono invisible
+
+        currentInfoMarker = map.addMarker(markerOptions)
+        map.selectMarker(currentInfoMarker!!) // Esto muestra el globo (info window)
+    }
 
     private fun showCustomNotification(message: String) {
         customNotificationMessage.text = message
@@ -700,16 +758,39 @@ class MainActivity : AppCompatActivity(),
             onStyleLoaded(style) // Llama a la nueva función
         })
 
+        // --- ### INICIO DE LA MODIFICACIÓN ### ---
+        // Asignamos nuestro adapter personalizado para los globos de info
+        map.setInfoWindowAdapter(CustomInfoWindowAdapter())
+        // --- ### FIN DE LA MODIFICACIÓN ### ---
+
         // El click listener para los paraderos se queda aquí
         map.addOnMapClickListener { point ->
             val screenPoint = map.projection.toScreenLocation(point)
-            val features = map.queryRenderedFeatures(screenPoint, "paradero-layer")
-            if (features.isNotEmpty()) {
-                val stopId = features[0].getStringProperty("stop_id")
-                if (stopId != null) {
-                    handleParaderoClick(stopId)
+
+            // 1. Priorizar click en el bus
+            val busFeatures = map.queryRenderedFeatures(screenPoint, "bus-layer")
+            if (busFeatures.isNotEmpty()) {
+                busFeatures[0]?.let {
+                    handleBusClick(it) // Llama a la nueva función
                 }
+                return@addOnMapClickListener true // Click manejado
             }
+
+            // 2. Si no, click en el paradero
+            val paraderoFeatures = map.queryRenderedFeatures(screenPoint, "paradero-layer")
+            if (paraderoFeatures.isNotEmpty()) {
+                val stopId = paraderoFeatures[0].getStringProperty("stop_id")
+                if (stopId != null) {
+                    handleParaderoClick(stopId) // Esta función ahora limpiará el globo
+                }
+                return@addOnMapClickListener true // Click manejado
+            }
+
+            // --- INICIO DE MODIFICACIÓN ---
+            // 3. Click en el mapa (ni bus, ni paradero)
+            clearInfoMarker() // Limpia el globo de info del bus
+            // --- FIN DE MODIFICACIÓN ---
+
             true
         }
     }
@@ -841,6 +922,7 @@ class MainActivity : AppCompatActivity(),
 
     // --- handleParaderoClick (Corregido) ---
     private fun handleParaderoClick(stopId: String) {
+        clearInfoMarker()
         sharedViewModel.selectStop(stopId)
         GtfsDataManager.stops[stopId]?.let { stop ->
             centerMapOnPoint(stop.location.latitude, stop.location.longitude)
@@ -888,6 +970,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun doShowTurismoDetail(punto: PuntoTuristico) {
+        clearInfoMarker()
         val fragment = DetalleTurismoFragment.newInstance(punto)
         findViewById<View>(R.id.bottom_sheet_content).visibility = View.GONE
         supportFragmentManager.beginTransaction()
@@ -955,6 +1038,7 @@ class MainActivity : AppCompatActivity(),
             "475" to R.drawable.linea_13, "466" to R.drawable.linea_1,
         )
         try {
+            // (Esta parte de cargar íconos no cambia)
             style.addImage("bus-icon-default", BitmapFactory.decodeResource(resources, R.drawable.ic_bus))
             routeIcons.forEach { (routeId, resourceId) ->
                 try {
@@ -962,16 +1046,41 @@ class MainActivity : AppCompatActivity(),
                 } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar icono para ruta $routeId: ${e.message}") }
             }
         } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar los íconos: ${e.message}") }
+
         style.addSource(GeoJsonSource("bus-source"))
+
         val cases = routeIcons.keys.flatMap { routeId ->
             listOf(eq(get("routeId"), literal(routeId)), literal("bus-icon-$routeId"))
         }.toTypedArray()
+
         val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
             withProperties(
                 PropertyFactory.iconImage(switchCase(*cases, literal("bus-icon-default"))),
-                PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
                 PropertyFactory.iconSize(0.5f),
-                PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(11.99f, 0f), stop(12f, 1f)))
+                PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(11.99f, 0f), stop(12f, 1f))),
+
+                // --- ### INICIO DE LÍNEAS AÑADIDAS ### ---
+
+                // 1. Define el texto: "I" si directionId es 0, "V" si es 1
+                PropertyFactory.textField(
+                    switchCase(
+                        eq(get("directionId"), 0), literal("I"), // Ida
+                        eq(get("directionId"), 1), literal("V"), // Vuelta
+                        literal("") // Por defecto (no debería pasar)
+                    )
+                ),
+
+                // 2. Propiedades del texto para que se vea bien sobre el ícono
+                PropertyFactory.textSize(12f),
+                PropertyFactory.textColor(Color.WHITE),
+                PropertyFactory.textHaloColor(Color.BLACK), // Borde negro
+                PropertyFactory.textHaloWidth(1f),
+                PropertyFactory.textAllowOverlap(true),     // Permite que el texto se muestre
+                PropertyFactory.textIgnorePlacement(true)  // Ignora colisiones
+
+                // --- ### FIN DE LÍNEAS AÑADIDAS ### ---
             )
         }
         style.addLayer(busLayer)
@@ -1058,6 +1167,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun drawRoute(route: GtfsRoute, directionId: Int) {
+        clearInfoMarker()
         clearDrawnElements()
         selectedRouteId = route.routeId
         selectedDirectionId = directionId
@@ -1108,6 +1218,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun clearRoutes(recenterToUser: Boolean) {
+        clearInfoMarker()
         clearDrawnElements()
         selectedRouteId = null
         selectedDirectionId = null
@@ -1276,8 +1387,25 @@ class MainActivity : AppCompatActivity(),
                     if (shouldShow) {
                         val point = Point.fromLngLat(position.longitude.toDouble(), position.latitude.toDouble())
                         val feature = Feature.fromGeometry(point)
+
+                        // --- INICIO DE MODIFICACIÓN ---
+                        // Añadimos más datos al "feature" del bus
                         feature.addStringProperty("routeId", trip.routeId)
+                        feature.addNumberProperty("directionId", trip.directionId) // ID de Dirección
                         feature.addNumberProperty("bearing", position.bearing)
+
+                        // Añadir info del vehículo (con chequeos de seguridad)
+                        if (vehicle.hasVehicle()) {
+                            val vehicleDesc = vehicle.vehicle
+                            if (vehicleDesc.hasLicensePlate()) {
+                                feature.addStringProperty("licensePlate", vehicleDesc.licensePlate) // Patente
+                            }
+                            if (vehicleDesc.hasId()) {
+                                feature.addStringProperty("vehicleId", vehicleDesc.id) // ID del vehículo
+                            }
+                        }
+                        // --- FIN DE MODIFICACIÓN ---
+
                         busFeatures.add(feature)
                     }
                 }
@@ -1570,6 +1698,50 @@ class MainActivity : AppCompatActivity(),
     override fun onSaveInstanceState(outState: Bundle) { super.onSaveInstanceState(outState); mapView.onSaveInstanceState(outState) }
     override fun onLowMemory() { super.onLowMemory(); mapView.onLowMemory() }
     override fun onDestroy() { super.onDestroy(); mapView.onDestroy() }
+
+    private fun clearInfoMarker() {
+        currentInfoMarker?.let {
+            if (::map.isInitialized) {
+                map.deselectMarker(it) // Oculta el globo
+            }
+            it.remove()            // Elimina el marcador invisible
+        }
+        currentInfoMarker = null
+    }
+
+    private inner class CustomInfoWindowAdapter : MapLibreMap.InfoWindowAdapter {
+
+        override fun getInfoWindow(marker: Marker): View? {
+            // Solo queremos personalizar el globo del bus (currentInfoMarker)
+            // Para los de turismo (turismoMarkers), usamos 'null' para
+            // que sigan usando el globo por defecto.
+            if (marker != currentInfoMarker) {
+                return null
+            }
+
+            // Inflamos nuestro layout personalizado
+            val view = layoutInflater.inflate(R.layout.custom_bus_info_window, null)
+            val tvLine: TextView = view.findViewById(R.id.tv_info_line)
+            val tvPatent: TextView = view.findViewById(R.id.tv_info_patent)
+
+            // Asignamos los textos que pusimos en handleBusClick
+            tvLine.text = marker.title
+            tvPatent.text = marker.snippet
+
+            // Ocultamos la patente si no hay
+            if (marker.snippet.isNullOrBlank()) {
+                tvPatent.visibility = View.GONE
+            } else {
+                tvPatent.visibility = View.VISIBLE
+            }
+
+            return view
+        }
+
+        // --- ### FUNCIÓN ELIMINADA ### ---
+        // La función getInfoContents(marker: Marker) se eliminó
+        // porque no existe en la interfaz de MapLibre.
+    }
 
     // --- FUNCIÓN CERRAR SESIÓN --- (Sin cambios, solo movida al final)
     private fun cerrarSesion() {
