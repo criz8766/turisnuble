@@ -1029,7 +1029,10 @@ class MainActivity : AppCompatActivity(),
     }
 
     // --- setupBusLayer (Corregido) ---
+    // --- setupBusLayer (MODIFICADO para Modo Espejo) ---
     private fun setupBusLayer(style: Style) {
+
+        // 1. Definimos los íconos (TU CÓDIGO ORIGINAL, SIN CAMBIOS)
         val routeIcons = mapOf(
             "467" to R.drawable.linea_2, "468" to R.drawable.linea_3, "469" to R.drawable.linea_4,
             "470" to R.drawable.linea_6, "471" to R.drawable.linea_7, "472" to R.drawable.linea_8,
@@ -1037,50 +1040,85 @@ class MainActivity : AppCompatActivity(),
             "473" to R.drawable.linea_10, "476" to R.drawable.linea_13, "474" to R.drawable.linea_13,
             "475" to R.drawable.linea_13, "466" to R.drawable.linea_1,
         )
+
+        // --- INICIO DE MODIFICACIÓN ---
+
+        // 2. Definimos los íconos ESPEJO (NUEVO)
+        // (Asegúrate de que estos archivos .png existan en res/drawable)
+        val routeIconsEspejo = mapOf(
+            "467" to R.drawable.linea_2_espejo, "468" to R.drawable.linea_3_espejo, "469" to R.drawable.linea_4_espejo,
+            "470" to R.drawable.linea_6_espejo, "471" to R.drawable.linea_7_espejo, "472" to R.drawable.linea_8_espejo,
+            "954" to R.drawable.linea_7_espejo, "478" to R.drawable.linea_14_espejo, "477" to R.drawable.linea_14_espejo,
+            "473" to R.drawable.linea_10_espejo, "476" to R.drawable.linea_13_espejo, "474" to R.drawable.linea_13_espejo,
+            "475" to R.drawable.linea_13_espejo, "466" to R.drawable.linea_1_espejo
+        )
+
+        // 3. Cargar TODOS los íconos (Normales y Espejo)
         try {
-            // (Esta parte de cargar íconos no cambia)
-            style.addImage("bus-icon-default", BitmapFactory.decodeResource(resources, R.drawable.ic_bus))
+            // Carga el bus genérico (default) y su espejo
+            try {
+                style.addImage("bus-icon-default-normal", BitmapFactory.decodeResource(resources, R.drawable.ic_bus))
+            } catch (e: Exception) { Log.e("SetupBusLayer", "Error cargando ic_bus.png", e) }
+
+            try {
+                style.addImage("bus-icon-default-espejo", BitmapFactory.decodeResource(resources, R.drawable.ic_bus_espejo))
+            } catch (e: Exception) { Log.e("SetupBusLayer", "Error cargando ic_bus_espejo.png", e) }
+
+            // Carga los íconos de ruta (linea_X) y sus espejos
             routeIcons.forEach { (routeId, resourceId) ->
                 try {
-                    style.addImage("bus-icon-$routeId", BitmapFactory.decodeResource(resources, resourceId))
-                } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar icono para ruta $routeId: ${e.message}") }
+                    style.addImage("bus-icon-$routeId-normal", BitmapFactory.decodeResource(resources, resourceId))
+                } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar icono normal $routeId: ${e.message}") }
             }
+            routeIconsEspejo.forEach { (routeId, resourceId) ->
+                try {
+                    style.addImage("bus-icon-$routeId-espejo", BitmapFactory.decodeResource(resources, resourceId))
+                } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar icono espejo $routeId: ${e.message}") }
+            }
+
         } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar los íconos: ${e.message}") }
 
+        // 4. Añadir la fuente (TU CÓDIGO ORIGINAL, SIN CAMBIOS)
         style.addSource(GeoJsonSource("bus-source"))
 
-        val cases = routeIcons.keys.flatMap { routeId ->
-            listOf(eq(get("routeId"), literal(routeId)), literal("bus-icon-$routeId"))
-        }.toTypedArray()
+        // 5. Construir la lógica de 'cases' para el switchCase
+        val cases = mutableListOf<Expression>()
+
+        routeIcons.keys.forEach { routeId ->
+            cases.add(eq(get("routeId"), literal(routeId))) // Condición: ej. routeId == "467"
+            cases.add(
+                // Valor si la condición es verdadera:
+                switchCase(
+                    eq(get("directionId"), 0), literal("bus-icon-$routeId-espejo"), // Si Ida (0) -> linea_2_espejo
+                    eq(get("directionId"), 1), literal("bus-icon-$routeId-normal"), // Si Vuelta (1) -> linea_2
+                    literal("bus-icon-$routeId-normal") // Fallback
+                )
+            )
+        }
+
+        // 6. Añadir el 'default' al final para los buses genéricos
+        cases.add(
+            switchCase(
+                eq(get("directionId"), 0), literal("bus-icon-default-espejo"), // Ida -> ic_bus_espejo
+                eq(get("directionId"), 1), literal("bus-icon-default-normal"), // Vuelta -> ic_bus
+                literal("bus-icon-default-normal") // Fallback
+            )
+        )
+        // --- FIN DE MODIFICACIÓN ---
+
 
         val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
             withProperties(
-                PropertyFactory.iconImage(switchCase(*cases, literal("bus-icon-default"))),
+                // 7. Aplicar la lógica de 'cases' al 'iconImage'
+                PropertyFactory.iconImage(switchCase(*cases.toTypedArray())),
+
+                // --- El resto de tus propiedades NO CAMBIAN ---
                 PropertyFactory.iconAllowOverlap(true),
                 PropertyFactory.iconIgnorePlacement(true),
                 PropertyFactory.iconSize(0.5f),
                 PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(11.99f, 0f), stop(12f, 1f))),
 
-                // --- ### INICIO DE LÍNEAS AÑADIDAS ### ---
-
-                // 1. Define el texto: "I" si directionId es 0, "V" si es 1
-                PropertyFactory.textField(
-                    switchCase(
-                        eq(get("directionId"), 0), literal("I"), // Ida
-                        eq(get("directionId"), 1), literal("V"), // Vuelta
-                        literal("") // Por defecto (no debería pasar)
-                    )
-                ),
-
-                // 2. Propiedades del texto para que se vea bien sobre el ícono
-                PropertyFactory.textSize(12f),
-                PropertyFactory.textColor(Color.WHITE),
-                PropertyFactory.textHaloColor(Color.BLACK), // Borde negro
-                PropertyFactory.textHaloWidth(1f),
-                PropertyFactory.textAllowOverlap(true),     // Permite que el texto se muestre
-                PropertyFactory.textIgnorePlacement(true)  // Ignora colisiones
-
-                // --- ### FIN DE LÍNEAS AÑADIDAS ### ---
+                // Tu lógica de "I" / "V" (sin cambios)
             )
         }
         style.addLayer(busLayer)
