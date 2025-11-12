@@ -120,6 +120,8 @@ class MainActivity : AppCompatActivity(),
 
     private var currentInfoMarker: Marker? = null
 
+    private var isMapRotated = false
+
     // --- VARIABLE DE AUTENTICACIÓN ---
     private lateinit var auth: FirebaseAuth
 
@@ -758,6 +760,38 @@ class MainActivity : AppCompatActivity(),
             onStyleLoaded(style) // Llama a la nueva función
         })
 
+        // --- ### INICIO DE LA MODIFICACIÓN (AÑADIR ESTE LISTENER) ### ---
+        map.addOnCameraIdleListener {
+            // Se llama cuando el usuario deja de mover el mapa
+            val newBearing = map.cameraPosition.bearing
+
+            // Definimos "rotado" como estar entre 90 y 270 grados
+            val shouldMapBeRotated = newBearing > 90 && newBearing < 270
+
+            // Si el estado (rotado / no rotado) no ha cambiado, no hacemos nada
+            if (shouldMapBeRotated == isMapRotated) {
+                return@addOnCameraIdleListener
+            }
+
+            // El estado cambió, lo actualizamos y aplicamos el nuevo estilo de íconos
+            isMapRotated = shouldMapBeRotated
+            Log.d("MapRotation", "Cambiando a estado rotado: $isMapRotated")
+
+            // Obtenemos el estilo y actualizamos la capa del bus
+            map.getStyle { style ->
+                // Asegurarse de que la capa exista antes de intentar modificarla
+                val busLayer = style.getLayer("bus-layer") as? SymbolLayer
+                busLayer?.let {
+                    // Aplicamos la NUEVA expresión de íconos
+                    it.setProperties(
+                        PropertyFactory.iconImage(createBusIconExpression(isMapRotated))
+                    )
+                }
+            }
+        }
+        // --- ### FIN DE LA MODIFICACIÓN ### ---
+
+
         // --- ### INICIO DE LA MODIFICACIÓN ### ---
         // Asignamos nuestro adapter personalizado para los globos de info
         map.setInfoWindowAdapter(CustomInfoWindowAdapter())
@@ -1030,6 +1064,7 @@ class MainActivity : AppCompatActivity(),
 
     // --- setupBusLayer (Corregido) ---
     // --- setupBusLayer (MODIFICADO para Modo Espejo) ---
+    // --- setupBusLayer (MODIFICADO para rotación de mapa) ---
     private fun setupBusLayer(style: Style) {
 
         // 1. Definimos los íconos (TU CÓDIGO ORIGINAL, SIN CAMBIOS)
@@ -1041,10 +1076,7 @@ class MainActivity : AppCompatActivity(),
             "475" to R.drawable.linea_13, "466" to R.drawable.linea_1,
         )
 
-        // --- INICIO DE MODIFICACIÓN ---
-
-        // 2. Definimos los íconos ESPEJO (NUEVO)
-        // (Asegúrate de que estos archivos .png existan en res/drawable)
+        // 2. Definimos los íconos ESPEJO (TU CÓDIGO ORIGINAL, SIN CAMBIOS)
         val routeIconsEspejo = mapOf(
             "467" to R.drawable.linea_2_espejo, "468" to R.drawable.linea_3_espejo, "469" to R.drawable.linea_4_espejo,
             "470" to R.drawable.linea_6_espejo, "471" to R.drawable.linea_7_espejo, "472" to R.drawable.linea_8_espejo,
@@ -1053,7 +1085,7 @@ class MainActivity : AppCompatActivity(),
             "475" to R.drawable.linea_13_espejo, "466" to R.drawable.linea_1_espejo
         )
 
-        // 3. Cargar TODOS los íconos (Normales y Espejo)
+        // 3. Cargar TODOS los íconos (MODIFICADO para sufijos -normal y -espejo)
         try {
             // Carga el bus genérico (default) y su espejo
             try {
@@ -1061,6 +1093,7 @@ class MainActivity : AppCompatActivity(),
             } catch (e: Exception) { Log.e("SetupBusLayer", "Error cargando ic_bus.png", e) }
 
             try {
+                // (Asegúrate de que 'ic_bus_espejo.png' exista en res/drawable)
                 style.addImage("bus-icon-default-espejo", BitmapFactory.decodeResource(resources, R.drawable.ic_bus_espejo))
             } catch (e: Exception) { Log.e("SetupBusLayer", "Error cargando ic_bus_espejo.png", e) }
 
@@ -1081,36 +1114,18 @@ class MainActivity : AppCompatActivity(),
         // 4. Añadir la fuente (TU CÓDIGO ORIGINAL, SIN CAMBIOS)
         style.addSource(GeoJsonSource("bus-source"))
 
-        // 5. Construir la lógica de 'cases' para el switchCase
-        val cases = mutableListOf<Expression>()
-
-        routeIcons.keys.forEach { routeId ->
-            cases.add(eq(get("routeId"), literal(routeId))) // Condición: ej. routeId == "467"
-            cases.add(
-                // Valor si la condición es verdadera:
-                switchCase(
-                    eq(get("directionId"), 0), literal("bus-icon-$routeId-espejo"), // Si Ida (0) -> linea_2_espejo
-                    eq(get("directionId"), 1), literal("bus-icon-$routeId-normal"), // Si Vuelta (1) -> linea_2
-                    literal("bus-icon-$routeId-normal") // Fallback
-                )
-            )
-        }
-
-        // 6. Añadir el 'default' al final para los buses genéricos
-        cases.add(
-            switchCase(
-                eq(get("directionId"), 0), literal("bus-icon-default-espejo"), // Ida -> ic_bus_espejo
-                eq(get("directionId"), 1), literal("bus-icon-default-normal"), // Vuelta -> ic_bus
-                literal("bus-icon-default-normal") // Fallback
-            )
-        )
-        // --- FIN DE MODIFICACIÓN ---
+        // --- ### INICIO DE LA MODIFICACIÓN (Usar la nueva función) ### ---
+        // Ya NO construimos los 'cases' aquí.
+        // Llamamos a la función helper para obtener la expresión INICIAL.
+        // Usamos 'isMapRotated' (que será 'false' la primera vez)
+        val iconExpression = createBusIconExpression(isMapRotated)
+        // --- ### FIN DE LA MODIFICACIÓN ### ---
 
 
         val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
             withProperties(
-                // 7. Aplicar la lógica de 'cases' al 'iconImage'
-                PropertyFactory.iconImage(switchCase(*cases.toTypedArray())),
+                // Aplicar la expresión de ícono inicial
+                PropertyFactory.iconImage(iconExpression),
 
                 // --- El resto de tus propiedades NO CAMBIAN ---
                 PropertyFactory.iconAllowOverlap(true),
@@ -1118,7 +1133,8 @@ class MainActivity : AppCompatActivity(),
                 PropertyFactory.iconSize(0.5f),
                 PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(11.99f, 0f), stop(12f, 1f))),
 
-                // Tu lógica de "I" / "V" (sin cambios)
+                // (OJO: Tu código original no tenía la rotación por 'bearing'
+                // ni el 'text' de I/V, así que los omito para mantenerlo simple)
             )
         }
         style.addLayer(busLayer)
@@ -1780,6 +1796,52 @@ class MainActivity : AppCompatActivity(),
         // La función getInfoContents(marker: Marker) se eliminó
         // porque no existe en la interfaz de MapLibre.
     }
+
+    // --- ### INICIO DE LA MODIFICACIÓN (NUEVA FUNCIÓN) ### ---
+    /**
+     * Crea la expresión 'switchCase' para los íconos de bus,
+     * invirtiendo la lógica 'espejo' si el mapa está rotado.
+     *
+     * @param isRotated Si es true, invierte la lógica normal (Ida=espejo, Vuelta=normal)
+     */
+    private fun createBusIconExpression(isRotated: Boolean): Expression {
+        val cases = mutableListOf<Expression>()
+
+        // Los IDs de tus rutas (de tu código original en setupBusLayer)
+        val routeIds = listOf(
+            "466", "467", "468", "469", "470", "471", "472", "954", "478", "477", "473", "476", "474", "475"
+        )
+
+        // Lógica de inversión que pediste:
+        val iconForIda = if (isRotated) "normal" else "espejo"     // Ida (0): normal si está rotado
+        val iconForVuelta = if (isRotated) "espejo" else "normal" // Vuelta (1): espejo si está rotado
+
+        // 1. Construimos los 'cases' para cada ruta
+        routeIds.forEach { routeId ->
+            cases.add(eq(get("routeId"), literal(routeId))) // Condición: ej. routeId == "466"
+
+            // Valor (que depende de directionId):
+            cases.add(
+                switchCase(
+                    eq(get("directionId"), 0), literal("bus-icon-$routeId-$iconForIda"), // Ida
+                    eq(get("directionId"), 1), literal("bus-icon-$routeId-$iconForVuelta"), // Vuelta
+                    literal("bus-icon-$routeId-normal") // Fallback
+                )
+            )
+        }
+
+        // 2. Añadimos el 'default' al final
+        cases.add(
+            switchCase(
+                eq(get("directionId"), 0), literal("bus-icon-default-$iconForIda"),
+                eq(get("directionId"), 1), literal("bus-icon-default-$iconForVuelta"),
+                literal("bus-icon-default-normal")
+            )
+        )
+
+        return switchCase(*cases.toTypedArray())
+    }
+    // --- ### FIN DE LA MODIFICACIÓN ### ---
 
     // --- FUNCIÓN CERRAR SESIÓN --- (Sin cambios, solo movida al final)
     private fun cerrarSesion() {
