@@ -4,7 +4,9 @@ import android.content.res.AssetManager
 import android.util.Log
 import org.maplibre.android.geometry.LatLng
 import kotlin.math.pow
-import android.location.Location // <-- IMPORTACIÓN NECESARIA
+import android.location.Location
+import org.json.JSONArray // <-- IMPORTACIÓN NECESARIA
+import org.json.JSONObject // <-- IMPORTACIÓN NECESARIA
 
 // Clases de datos (sin cambios)
 data class GtfsRoute(
@@ -43,108 +45,101 @@ object GtfsDataManager {
     val shapes = mutableMapOf<String, MutableList<LatLng>>()
     val trips = mutableMapOf<String, GtfsTrip>()
     private val stopTimesByTrip = mutableMapOf<String, MutableList<GtfsStopTime>>()
-
-    // --- NUEVA COLECCIÓN PARA BÚSQUEDAS RÁPIDAS (EXISTENTE) ---
     private val tripsByTripId = mutableMapOf<String, GtfsTrip>()
 
-
+    // --- FUNCIÓN MODIFICADA PARA LEER JSON ---
     fun loadData(assetManager: AssetManager) {
         if (isDataLoaded) return
-        Log.d("GtfsDataManager", "Iniciando carga de datos GTFS...")
+        Log.d("GtfsDataManager", "Iniciando carga de datos GTFS desde JSON...")
 
         try {
-            // Carga de routes.txt (sin cambios)
-            assetManager.open("routes.txt").bufferedReader().useLines { lines ->
-                lines.drop(1).forEach { line ->
-                    val tokens = line.split(',')
-                    if (tokens.size > 7) {
-                        val route = GtfsRoute(
-                            routeId = tokens[0],
-                            shortName = tokens[2],
-                            longName = tokens[3],
-                            color = "#${tokens[7]}"
-                        )
-                        routes[route.routeId] = route
-                    }
-                }
+            // Carga de routes.json
+            val routesJsonString = assetManager.open("routes.json").bufferedReader().readText()
+            val routesArray = JSONArray(routesJsonString)
+            for (i in 0 until routesArray.length()) {
+                val obj = routesArray.getJSONObject(i)
+                val route = GtfsRoute(
+                    routeId = obj.getString("route_id"),
+                    shortName = obj.getString("route_short_name"),
+                    longName = obj.getString("route_long_name"),
+                    color = "#${obj.getString("route_color")}" // Asumiendo que el color en JSON no tiene el #
+                )
+                routes[route.routeId] = route
             }
             Log.d("GtfsDataManager", "Cargadas ${routes.size} rutas.")
 
-            // Carga de stops.txt (sin cambios)
-            assetManager.open("stops.txt").bufferedReader().useLines { lines ->
-                lines.drop(1).forEach { line ->
-                    val tokens = line.split(',')
-                    if (tokens.size > 5) {
-                        val stop = GtfsStop(
-                            stopId = tokens[0],
-                            name = tokens[2],
-                            location = LatLng(tokens[4].toDouble(), tokens[5].toDouble())
-                        )
-                        stops[stop.stopId] = stop
-                    }
-                }
+            // Carga de stops.json
+            val stopsJsonString = assetManager.open("stops.json").bufferedReader().readText()
+            val stopsArray = JSONArray(stopsJsonString)
+            for (i in 0 until stopsArray.length()) {
+                val obj = stopsArray.getJSONObject(i)
+                val stop = GtfsStop(
+                    stopId = obj.getString("stop_id"),
+                    name = obj.getString("stop_name"),
+                    location = LatLng(obj.getDouble("stop_lat"), obj.getDouble("stop_lon"))
+                )
+                stops[stop.stopId] = stop
             }
             Log.d("GtfsDataManager", "Cargados ${stops.size} paraderos.")
 
-            // Carga de shapes.txt (sin cambios)
-            assetManager.open("shapes.txt").bufferedReader().useLines { lines ->
-                lines.drop(1).forEach { line ->
-                    val tokens = line.split(',')
-                    if (tokens.size > 3) {
-                        val shapeId = tokens[0]
-                        val point = LatLng(tokens[1].toDouble(), tokens[2].toDouble())
-                        shapes.getOrPut(shapeId) { mutableListOf() }.add(point)
-                    }
-                }
+            // Carga de shapes.json
+            val shapesJsonString = assetManager.open("shapes.json").bufferedReader().readText()
+            val shapesArray = JSONArray(shapesJsonString)
+            for (i in 0 until shapesArray.length()) {
+                val obj = shapesArray.getJSONObject(i)
+                val shapeId = obj.getString("shape_id")
+                val point = LatLng(obj.getDouble("shape_pt_lat"), obj.getDouble("shape_pt_lon"))
+                shapes.getOrPut(shapeId) { mutableListOf() }.add(point)
+                // NOTA: El sort por sequence no es necesario si el JSON ya viene ordenado.
+                // Si no, habría que parsear "shape_pt_sequence" y ordenar después.
             }
             Log.d("GtfsDataManager", "Cargados ${shapes.size} trazados.")
 
-            // Carga de trips.txt (con una pequeña adición)
-            assetManager.open("trips.txt").bufferedReader().useLines { lines ->
-                lines.drop(1).forEach { line ->
-                    val tokens = line.split(',')
-                    if (tokens.size > 7) {
-                        val trip = GtfsTrip(
-                            routeId = tokens[0],
-                            serviceId = tokens[1],
-                            tripId = tokens[2],
-                            directionId = tokens[5].toInt(),
-                            shapeId = tokens[7]
-                        )
-                        val tripKey = "${trip.routeId}_${trip.directionId}"
-                        if (!trips.containsKey(tripKey)) {
-                            trips[tripKey] = trip
-                        }
-                        // --- NUEVO: Guardamos el viaje por su ID para búsquedas rápidas ---
-                        tripsByTripId[trip.tripId] = trip
-                    }
+            // Carga de trips.json
+            val tripsJsonString = assetManager.open("trips.json").bufferedReader().readText()
+            val tripsArray = JSONArray(tripsJsonString)
+            for (i in 0 until tripsArray.length()) {
+                val obj = tripsArray.getJSONObject(i)
+                val trip = GtfsTrip(
+                    routeId = obj.getString("route_id"),
+                    serviceId = obj.getString("service_id"),
+                    tripId = obj.getString("trip_id"),
+                    directionId = obj.getInt("direction_id"),
+                    shapeId = obj.getString("shape_id")
+                )
+                val tripKey = "${trip.routeId}_${trip.directionId}"
+                if (!trips.containsKey(tripKey)) {
+                    trips[tripKey] = trip
                 }
+                tripsByTripId[trip.tripId] = trip
             }
             Log.d("GtfsDataManager", "Cargados ${trips.size} viajes únicos.")
 
-            // Carga de stop_times.txt (sin cambios)
-            assetManager.open("stop_times.txt").bufferedReader().useLines { lines ->
-                lines.drop(1).forEach { line ->
-                    val tokens = line.split(',')
-                    if (tokens.size > 4) {
-                        val stopTime = GtfsStopTime(
-                            tripId = tokens[0],
-                            stopId = tokens[3],
-                            stopSequence = tokens[4].toInt()
-                        )
-                        stopTimesByTrip.getOrPut(stopTime.tripId) { mutableListOf() }.add(stopTime)
-                    }
-                }
+            // Carga de stop_times.json
+            val stopTimesJsonString = assetManager.open("stop_times.json").bufferedReader().readText()
+            val stopTimesArray = JSONArray(stopTimesJsonString)
+            for (i in 0 until stopTimesArray.length()) {
+                val obj = stopTimesArray.getJSONObject(i)
+                val stopTime = GtfsStopTime(
+                    tripId = obj.getString("trip_id"),
+                    stopId = obj.getString("stop_id"),
+                    stopSequence = obj.getInt("stop_sequence")
+                )
+                stopTimesByTrip.getOrPut(stopTime.tripId) { mutableListOf() }.add(stopTime)
             }
             Log.d("GtfsDataManager", "Cargadas ${stopTimesByTrip.size} secuencias de paraderos.")
 
             isDataLoaded = true
-            Log.d("GtfsDataManager", "Carga de datos GTFS completada.")
+            Log.d("GtfsDataManager", "Carga de datos GTFS (JSON) completada.")
         } catch (e: Exception) {
-            Log.e("GtfsDataManager", "Error al cargar los datos GTFS.", e)
+            Log.e("GtfsDataManager", "Error al cargar los datos GTFS desde JSON.", e)
             isDataLoaded = false
         }
     }
+
+    // --- EL RESTO DE FUNCIONES (getStopsForRoute, distanceToInMeters, getNearbyStops, getRoutesForStop) ---
+    // --- NO REQUIEREN NINGÚN CAMBIO ---
+    // ... (copiar el resto de funciones existentes)
 
     // Función para obtener la secuencia de paraderos (sin cambios)
     fun getStopsForRoute(routeId: String, directionId: Int): List<GtfsStop> {
@@ -203,8 +198,11 @@ object GtfsDataManager {
         return uniqueRoutes.mapNotNull { (routeId, directionId) ->
             routes[routeId]?.let { route ->
                 val directionName = if (directionId == 0) "Ida" else "Vuelta"
+                // Asumiendo que DisplayRouteInfo existe, basado en la función
+                // Si no, reemplace la línea siguiente con lo que corresponda
                 DisplayRouteInfo(route, directionId, directionName)
             }
         }
     }
+
 }
