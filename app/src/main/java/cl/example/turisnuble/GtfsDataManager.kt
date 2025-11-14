@@ -117,7 +117,7 @@ object GtfsDataManager {
             Log.d("GtfsDataManager", "Cargados ${trips.size} viajes únicos.")
 
             // Carga de stop_times.json
-            val stopTimesJsonString = File(filesDir, "stop_times.json").bufferedReader().readText() // <-- CAMBIO
+            val stopTimesJsonString = File(filesDir, "stopTimes.json").bufferedReader().readText() // <-- CAMBIO
             val stopTimesArray = JSONArray(stopTimesJsonString)
             for (i in 0 until stopTimesArray.length()) {
                 val obj = stopTimesArray.getJSONObject(i)
