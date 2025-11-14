@@ -1,20 +1,23 @@
 package cl.example.turisnuble
 
 import android.annotation.SuppressLint
+import android.content.Context // <-- IMPORTADO
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log // <-- IMPORTADO
 import android.view.animation.AnimationUtils
 import android.widget.ImageView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseUser // <-- IMPORTAR
-import com.google.firebase.auth.GoogleAuthProvider // <-- IMPORTAR
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File // <-- IMPORTADO
 
 @SuppressLint("CustomSplashScreen")
 class SplashActivity : AppCompatActivity() {
@@ -35,46 +38,101 @@ class SplashActivity : AppCompatActivity() {
 
         lifecycleScope.launch(Dispatchers.IO) {
 
-            GtfsDataManager.loadData(assets)
+            // --- INICIO DE MODIFICACIÓN: LÓGICA DE FASE 2 ---
+
+            // 1. Verificar y copiar archivos en la primera ejecución
+            prepareGtfsData()
+
+            // 2. Aquí es donde debe ir su futura lógica de "actualización".
+            // Por ejemplo:
+            // if (hayNuevaVersion(servidorUrl)) {
+            //     descargarNuevosJson(servidorUrl, this@SplashActivity.filesDir)
+            // }
+
+            // 3. Cargar datos desde el almacenamiento interno
+            // Esta línea reemplaza a GtfsDataManager.loadData(assets)
+            GtfsDataManager.loadData(this@SplashActivity)
+
+            // --- FIN DE MODIFICACIÓN ---
 
             val currentUser = auth.currentUser
 
             withContext(Dispatchers.Main) {
-                // <-- INICIO CAMBIO
                 if (currentUser != null && isUserVerified(currentUser)) {
-                    // Caso 1: Usuario existe Y está verificado (o es de Google)
                     startMainActivity()
                 } else {
-                    // Caso 2: No hay usuario O no está verificado
                     startLoginActivity()
                 }
-                // <-- FIN CAMBIO
             }
         }
     }
 
-    // <-- INICIO CAMBIO: Nueva función de ayuda
+    /**
+     * Verifica si los archivos GTFS existen en el almacenamiento interno.
+     * Si no, los copia desde 'assets' (primera ejecución).
+     */
+    private fun prepareGtfsData() {
+        val gtfsFiles = listOf(
+            "routes.json",
+            "stops.json",
+            "shapes.json",
+            "trips.json",
+            "stop_times.json",
+            "version.json" // Importante para la lógica de actualización
+        )
+
+        val internalStorageDir = this.filesDir
+        val versionFile = File(internalStorageDir, "version.json")
+
+        if (!versionFile.exists()) {
+            // Si no existe, es la primera vez que se abre la app.
+            // Copiamos todos los archivos desde 'assets' a 'filesDir'.
+            Log.d("SplashActivity", "Primera ejecución: Copiando archivos base a almacenamiento interno...")
+            gtfsFiles.forEach { fileName ->
+                copyAssetToFile(fileName, this)
+            }
+        } else {
+            Log.d("SplashActivity", "Archivos de datos ya existen en almacenamiento interno.")
+            // En el futuro, aquí puedes verificar la versión remota contra la local.
+        }
+    }
+
+    /**
+     * Función helper para copiar un archivo desde 'assets' al almacenamiento interno 'filesDir'.
+     */
+    private fun copyAssetToFile(fileName: String, context: Context) {
+        try {
+            context.assets.open(fileName).use { inputStream ->
+                File(context.filesDir, fileName).outputStream().use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+            Log.d("SplashActivity", "Archivo $fileName copiado a filesDir.")
+        } catch (e: Exception) {
+            Log.e("SplashActivity", "Error copiando $fileName a filesDir.", e)
+            // Considerar manejo de error más robusto si un archivo falta
+        }
+    }
+
+    // Función de ayuda existente (sin cambios)
     private fun isUserVerified(user: FirebaseUser): Boolean {
-        // Opción 1: El usuario está verificado por correo
         if (user.isEmailVerified) {
             return true
         }
-
-        // Opción 2: El usuario inició sesión con Google (que ya está verificado por defecto)
         val isGoogleProvider = user.providerData.any {
             it.providerId == GoogleAuthProvider.PROVIDER_ID
         }
-
         return isGoogleProvider
     }
-    // <-- FIN CAMBIO
 
+    // Función existente (sin cambios)
     private fun startMainActivity() {
         val intent = Intent(this, MainActivity::class.java)
         startActivity(intent)
         finish()
     }
 
+    // Función existente (sin cambios)
     private fun startLoginActivity() {
         val intent = Intent(this, LoginActivity::class.java)
         startActivity(intent)
