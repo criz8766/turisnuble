@@ -8,6 +8,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
@@ -43,7 +44,7 @@ class FavoritosActivity : AppCompatActivity() {
         }
 
         // Configurar RecyclerView
-        rvFavoritos.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
+        rvFavoritos.layoutManager = LinearLayoutManager(this)
 
         // Cargar los favoritos
         loadFavorites()
@@ -64,17 +65,21 @@ class FavoritosActivity : AppCompatActivity() {
 
             // --- INICIO DE LA LÓGICA DE VALIDACIÓN ---
             val listaValidada = favoritesList.filter { item ->
-                // CORRECCIÓN 1: Usar FavoritesManager.FavoriteType
-                if (item.type == FavoritesManager.FavoriteType.TURISMO) {
-                    val idNumerico = item.id.toIntOrNull()
-                    if (idNumerico != null) {
-                        TurismoDataManager.puntosTuristicos.any { it.id == idNumerico }
-                    } else {
-                        false
+                when (item.type) {
+                    FavoritesManager.FavoriteType.TURISMO -> {
+                        val idNumerico = item.id.toIntOrNull()
+                        if (idNumerico != null) {
+                            TurismoDataManager.puntosTuristicos.any { it.id == idNumerico }
+                        } else {
+                            false
+                        }
                     }
-                } else {
-                    // Es Paradero
-                    GtfsDataManager.stops.containsKey(item.id)
+                    FavoritesManager.FavoriteType.PARADERO -> {
+                        GtfsDataManager.stops.containsKey(item.id)
+                    }
+                    FavoritesManager.FavoriteType.RUTA -> {
+                        GtfsDataManager.routes.containsKey(item.id)
+                    }
                 }
             }
             // --- FIN DE LA LÓGICA DE VALIDACIÓN ---
@@ -84,21 +89,35 @@ class FavoritosActivity : AppCompatActivity() {
                     showEmptyState()
                 } else {
                     showListState()
+
+                    // Configuramos el adaptador con la acción de navegación
                     adapter = FavoritosAdapter(listaValidada) { selectedItem ->
 
-                        // CORRECCIÓN 2: Usar FavoritesManager.FavoriteType
-                        if (selectedItem.type == FavoritesManager.FavoriteType.TURISMO) {
-                            val idNumerico = selectedItem.id.toIntOrNull()
-                            val puntoReal = TurismoDataManager.puntosTuristicos.find { it.id == idNumerico }
+                        // Preparamos el Intent para ir a MainActivity
+                        val intent = Intent(this, MainActivity::class.java)
 
-                            if (puntoReal != null) {
-                                Toast.makeText(this, "Seleccionaste: ${puntoReal.nombre}", Toast.LENGTH_SHORT).show()
-                                // Aquí podrías lanzar el DetalleTurismoFragment si estuvieras en MainActivity
+                        // Estas banderas aseguran que si MainActivity ya está abierta,
+                        // se reutilice y se limpie lo que esté encima, en lugar de crear una nueva instancia.
+                        intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+
+                        // Enviamos los datos necesarios según el tipo
+                        when (selectedItem.type) {
+                            FavoritesManager.FavoriteType.TURISMO -> {
+                                intent.putExtra("EXTRA_ACTION_TYPE", "TURISMO")
+                                intent.putExtra("EXTRA_ID", selectedItem.id)
                             }
-                        } else {
-                            // Es un paradero
-                            Toast.makeText(this, "Paradero: ${selectedItem.name}", Toast.LENGTH_SHORT).show()
+                            FavoritesManager.FavoriteType.PARADERO -> {
+                                intent.putExtra("EXTRA_ACTION_TYPE", "PARADERO")
+                                intent.putExtra("EXTRA_ID", selectedItem.id)
+                            }
+                            FavoritesManager.FavoriteType.RUTA -> {
+                                intent.putExtra("EXTRA_ACTION_TYPE", "RUTA")
+                                intent.putExtra("EXTRA_ID", selectedItem.id)
+                            }
                         }
+
+                        startActivity(intent)
+                        // finish() // Descomenta si quieres cerrar FavoritosActivity inmediatamente
                     }
                     rvFavoritos.adapter = adapter
                 }

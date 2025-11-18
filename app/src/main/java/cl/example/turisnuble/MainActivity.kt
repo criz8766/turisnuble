@@ -69,12 +69,11 @@ import retrofit2.converter.protobuf.ProtoConverterFactory
 import android.widget.ImageButton
 import android.widget.TextView
 
-// --- IMPORTACIONES PARA EL MENÚ ---
+// --- IMPORTACIONES PARA EL MENÚ Y EXTRAS ---
 import android.content.Intent
-import android.widget.ImageView // Necesario para el optionsMenuButton
+import android.widget.ImageView
 import androidx.appcompat.widget.PopupMenu
 import com.google.firebase.auth.FirebaseAuth
-// --- FIN IMPORTACIONES AÑADIDAS ---
 
 // --- ### USA SOLAMENTE ESTAS DOS LÍNEAS PARA EXPRESSIONS ### ---
 import org.maplibre.android.style.expressions.Expression
@@ -137,6 +136,9 @@ class MainActivity : AppCompatActivity(),
 
     private var listMaxHeight: Int = 0
     private var detailMaxHeight: Int = 0
+
+    // --- VARIABLE NUEVA PARA ACCIONES DIFERIDAS (Intents desde Favoritos) ---
+    private var pendingAction: (() -> Unit)? = null
 
     // --- apiService (sin cambios) ---
     private val apiService: GtfsApiService by lazy {
@@ -322,7 +324,7 @@ class MainActivity : AppCompatActivity(),
         updateBusMarkers(stopLocation)
     }
 
-    // --- onCreate (Modificaciones mínimas) ---
+    // --- onCreate (Modificaciones para Intents) ---
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
@@ -342,7 +344,7 @@ class MainActivity : AppCompatActivity(),
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
 
         setupTabs()
-        setupBottomSheetCallback() // <-- Llama al callback para el padding dinámico
+        setupBottomSheetCallback()
 
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
@@ -355,24 +357,16 @@ class MainActivity : AppCompatActivity(),
             clearRoutes(recenterToUser = true)
         }
 
-        // --- CONEXIÓN DEL BOTÓN AÑADIDA ---
+        // --- CONEXIÓN DEL BOTÓN DE ESTILO ---
         mapStyleFab = findViewById(R.id.map_style_fab)
         mapStyleFab.setOnClickListener {
-
-            // Define el tiempo de enfriamiento (ej. 2000 milisegundos = 2 segundos)
             val COOLDOWN_MS = 1500
-
             val now = System.currentTimeMillis()
-
-            // Comprueba si ha pasado suficiente tiempo desde el último click
             if (now - lastMapStyleClickTime > COOLDOWN_MS) {
-                // Sí pasó el tiempo: actualiza la marca de tiempo y ejecuta la acción
                 lastMapStyleClickTime = now
                 toggleMapStyle()
             }
-            // Si no ha pasado el tiempo, el click simplemente se ignora (no se hace nada)
         }
-        // --- FIN CONEXIÓN---
 
         searchView = findViewById(R.id.search_view)
         setupSearchListener()
@@ -385,12 +379,10 @@ class MainActivity : AppCompatActivity(),
         customNotificationMessage = customNotificationView.findViewById(R.id.tv_notification_message)
         customNotificationDismiss = customNotificationView.findViewById(R.id.btn_notification_dismiss)
 
-        // Configura el botón de cierre (la 'X')
         customNotificationDismiss.setOnClickListener {
             hideCustomNotification()
         }
 
-        // 2. Inicializamos el RecyclerView
         searchResultsRecyclerView = findViewById(R.id.search_results_recyclerview)
         searchResultsRecyclerView.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
         searchResultsRecyclerView.adapter = searchAdapter
@@ -430,45 +422,33 @@ class MainActivity : AppCompatActivity(),
             }
         }
 
-        // --- LÓGICA DEL MENÚ DE OPCIONES --- AÑADIDO Y MODIFICADO ---
+        // --- LÓGICA DEL MENÚ DE OPCIONES ---
         val optionsMenuButton = findViewById<ImageView>(R.id.optionsMenuButton)
         optionsMenuButton.setOnClickListener { view ->
             val popup = PopupMenu(this, view)
             popup.menuInflater.inflate(R.menu.main_options_menu, popup.menu)
 
-            // --- INICIO DE LA LÓGICA DINÁMICA ---
             val currentUser = auth.currentUser
             val menu = popup.menu
 
             if (currentUser == null) {
-                // Es un INVITADO (auth.currentUser es null)
                 menu.findItem(R.id.menu_perfil).isVisible = false
                 menu.findItem(R.id.menu_favoritos).isVisible = false
                 menu.findItem(R.id.menu_sugerencias).isVisible = false
             } else {
-                // Es un USUARIO REGISTRADO
                 menu.findItem(R.id.menu_perfil).isVisible = true
                 menu.findItem(R.id.menu_favoritos).isVisible = true
                 menu.findItem(R.id.menu_sugerencias).isVisible = true
             }
-            // "Volver a iniciar sesión" (menu_logout) es visible para ambos
-            // --- FIN DE LA LÓGICA DINÁMICA ---
-
 
             popup.setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
                     R.id.menu_perfil -> {
-                        // --- INICIO CAMBIO ---
-                        // Toast.makeText(this, "Ir a Perfil (pendiente)", Toast.LENGTH_SHORT).show()
                         startActivity(Intent(this, ProfileActivity::class.java))
-                        // --- FIN CAMBIO ---
                         true
                     }
                     R.id.menu_favoritos -> {
-                        // ### INICIO DE LA MODIFICACIÓN ###
-                        // Se reemplaza el Toast por el Intent
                         startActivity(Intent(this, FavoritosActivity::class.java))
-                        // ### FIN DE LA MODIFICACIÓN ###
                         true
                     }
                     R.id.menu_sugerencias -> {
@@ -476,25 +456,78 @@ class MainActivity : AppCompatActivity(),
                         true
                     }
                     R.id.menu_logout -> {
-                        cerrarSesion() // Esta función ya existe
+                        cerrarSesion()
                         true
                     }
                     else -> false
                 }
             }
-
             popup.show()
         }
-        // --- FIN LÓGICA DEL MENÚ ---
+
+        // --- PROCESAR INTENT INICIAL (Si la app se abre desde Favoritos) ---
+        processIntent(intent)
 
     } // --- FIN DE onCreate ---
+
+    // --- NUEVO MÉTODO: Se llama cuando la app ya está abierta y recibe un nuevo Intent ---
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent) // Actualizar el intent guardado
+        processIntent(intent) // Procesar la nueva instrucción
+    }
+
+    // --- NUEVO MÉTODO: Lógica central para navegar desde Favoritos ---
+    private fun processIntent(intent: Intent?) {
+        if (intent == null) return
+
+        val actionType = intent.getStringExtra("EXTRA_ACTION_TYPE") ?: return
+        val id = intent.getStringExtra("EXTRA_ID") ?: return
+
+        // Definimos la acción a realizar
+        val action = {
+            when (actionType) {
+                "TURISMO" -> {
+                    val puntoId = id.toIntOrNull()
+                    val punto = TurismoDataManager.puntosTuristicos.find { it.id == puntoId }
+                    if (punto != null) {
+                        showTurismoDetail(punto)
+                    } else {
+                        Toast.makeText(this, "Punto turístico no encontrado", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                "PARADERO" -> {
+                    // handleParaderoClick ya gestiona el centrado, el ViewModel y la UI
+                    handleParaderoClick(id)
+                }
+                "RUTA" -> {
+                    val route = GtfsDataManager.routes[id]
+                    if (route != null) {
+                        // Asumimos dirección 0 (Ida) por defecto para favoritos de ruta
+                        drawRoute(route, 0)
+                        showRouteDetail(route.routeId, 0)
+                    } else {
+                        Toast.makeText(this, "Ruta no encontrada", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+
+        // Ejecutamos la acción SOLO si el mapa y el estilo están listos
+        if (::map.isInitialized && mapStyle != null && mapStyle!!.isFullyLoaded) {
+            action()
+        } else {
+            // Si no están listos, guardamos la acción para después (en onStyleLoaded)
+            pendingAction = action
+        }
+    }
 
 
     private fun handleBusClick(feature: Feature) {
         val routeId = feature.getStringProperty("routeId")
         val directionId = feature.getNumberProperty("directionId")?.toInt()
         val licensePlate = feature.getStringProperty("licensePlate")
-        val geometry = feature.geometry() // Obtener la geometría del bus
+        val geometry = feature.geometry()
 
         if (routeId == null || directionId == null || geometry !is Point) {
             Log.w("HandleBusClick", "Bus click con datos incompletos.")
@@ -507,22 +540,13 @@ class MainActivity : AppCompatActivity(),
             return
         }
 
-        // 1. Dibuja la ruta (Esto limpia el globo anterior)
         drawRoute(route, directionId)
 
-        // 2. Muestra el globo de información (Marker con InfoWindow)
-
         val busLocation = LatLng(geometry.latitude(), geometry.longitude())
-
-        // --- ### INICIO DE LA MODIFICACIÓN ### ---
-        // Preparamos los textos para el Adapter
         val directionStr = if (directionId == 0) "Ida" else "Vuelta"
         val infoTitle = "Línea ${route.shortName} ($directionStr)"
         val infoSnippet = if (licensePlate.isNullOrBlank()) "Patente no disponible" else licensePlate
-        // --- ### FIN DE LA MODIFICACIÓN ### ---
 
-
-        // Crear un icono 1x1 transparente para que el marcador sea invisible
         val iconFactory = IconFactory.getInstance(this@MainActivity)
         val transparentBitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
         val transparentIcon = iconFactory.fromBitmap(transparentBitmap)
@@ -530,11 +554,11 @@ class MainActivity : AppCompatActivity(),
         val markerOptions = MarkerOptions()
             .position(busLocation)
             .title(infoTitle)
-            .snippet(infoSnippet)// El título ahora incluye (Ida) o (Vuelta)
-            .icon(transparentIcon) // Usar el icono invisible
+            .snippet(infoSnippet)
+            .icon(transparentIcon)
 
         currentInfoMarker = map.addMarker(markerOptions)
-        map.selectMarker(currentInfoMarker!!) // Esto muestra el globo (info window)
+        map.selectMarker(currentInfoMarker!!)
     }
 
     private fun showCustomNotification(message: String) {
@@ -542,26 +566,17 @@ class MainActivity : AppCompatActivity(),
         customNotificationView.visibility = View.VISIBLE
     }
 
-    /**
-     * Oculta la vista de notificación personalizada.
-     */
     private fun hideCustomNotification() {
         customNotificationView.visibility = View.GONE
     }
 
-    /**
-     * Realiza la búsqueda en todos los datos y actualiza el adaptador.
-     */
     private fun performSearch(query: String) {
-        // 1. Buscamos en Paraderos (SIN CAMBIOS)
         val paraderos = GtfsDataManager.stops.values
             .filter { it.name.lowercase().contains(query) || it.stopId.equals(query, ignoreCase = true) }
             .map { SearchResult(SearchResultType.PARADERO, it.name, "Paradero ${it.stopId}", it) }
 
-
-        // 2. Buscamos en Rutas (SIN CAMBIOS)
         val queryLower = query.lowercase()
-        var queryRutas = query // Por defecto, buscamos el texto tal cual
+        var queryRutas = query
 
         if (queryLower == "linea" || queryLower == "línea") {
             queryRutas = ""
@@ -578,15 +593,10 @@ class MainActivity : AppCompatActivity(),
             }
             .map { SearchResult(SearchResultType.RUTA, it.shortName, it.longName, it) }
 
-
-        // --- CORRECCIÓN AQUÍ: Usar TurismoDataManager ---
-        // 3. Buscamos en Puntos de Turismo
-        val turismo = TurismoDataManager.puntosTuristicos // <-- CAMBIO: Antes era DatosTurismo.puntosTuristicos
+        val turismo = TurismoDataManager.puntosTuristicos
             .filter { it.nombre.lowercase().contains(query) }
             .map { SearchResult(SearchResultType.TURISMO, it.nombre, it.direccion, it) }
-        // ------------------------------------------------
 
-        // 4. Combinamos todas las listas y actualizamos el adapter
         val results = (paraderos + rutas + turismo).sortedBy { it.title }
 
         if (results.isNotEmpty()) {
@@ -597,11 +607,7 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    /**
-     * Se llama cuando el usuario hace click en un resultado de la lista.
-     */
     private fun onSearchResultClicked(result: SearchResult) {
-        //Toast.makeText(this, "Mostrando: ${result.title}", Toast.LENGTH_SHORT).show()
         showCustomNotification("Mostrando: ${result.title}")
 
         when (result.type) {
@@ -615,61 +621,44 @@ class MainActivity : AppCompatActivity(),
             }
             SearchResultType.RUTA -> {
                 val ruta = result.originalObject as GtfsRoute
-                // Asumimos dirección 0 por defecto al buscar
                 drawRoute(ruta, 0)
                 showRouteDetail(ruta.routeId, 0)
             }
         }
 
-
-
-        // Ocultamos todo
-        searchView.setQuery("", false) // 1. Limpia el texto de la barra
-        searchView.clearFocus()       // 2. Oculta el teclado
-        hideSearchResults()           // 3. Oculta la lista de resultados
+        searchView.setQuery("", false)
+        searchView.clearFocus()
+        hideSearchResults()
     }
 
-    /**
-     * Oculta el RecyclerView de resultados.
-     */
     private fun hideSearchResults() {
         searchResultsRecyclerView.visibility = View.GONE
-        searchAdapter.updateResults(emptyList()) // Limpiamos la lista
+        searchAdapter.updateResults(emptyList())
     }
 
     private fun setupSearchListener() {
         searchView.setOnQueryTextListener(object : androidx.appcompat.widget.SearchView.OnQueryTextListener {
-
-            // Esta ya no es la principal, pero la mantenemos por si el usuario presiona Enter
             override fun onQueryTextSubmit(query: String?): Boolean {
-                // Simplemente oculta el teclado
                 searchView.clearFocus()
                 return true
             }
-
-            // ¡ESTA ES LA NUEVA LÓGICA IMPORTANTE!
             override fun onQueryTextChange(newText: String?): Boolean {
                 val query = newText?.trim()
-
-                // Si la búsqueda está vacía o es muy corta, ocultamos la lista
                 if (query.isNullOrBlank()) {
                     hideSearchResults()
                 } else {
-                    // Si hay texto, realizamos la búsqueda
                     performSearch(query.lowercase())
                 }
                 return true
             }
         })
 
-        // Añadimos un listener para cuando el usuario presiona la 'X' de limpiar
         searchView.setOnCloseListener {
             hideSearchResults()
-            false // Devuelve false para que el SearchView maneje el borrado del texto
+            false
         }
     }
 
-    // --- setupTabs (sin cambios) ---
     private fun setupTabs() {
         tabLayout = findViewById(R.id.tab_layout)
         viewPager = findViewById(R.id.view_pager)
@@ -687,7 +676,6 @@ class MainActivity : AppCompatActivity(),
         viewPager.isUserInputEnabled = false
     }
 
-    // --- setupBottomSheetCallback (CON LÓGICA DE PADDING) ---
     private fun setupBottomSheetCallback() {
         if (!::bottomSheetBehavior.isInitialized) {
             val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
@@ -732,178 +720,124 @@ class MainActivity : AppCompatActivity(),
     override fun onMapReady(mapLibreMap: MapLibreMap) {
         this.map = mapLibreMap
 
-        // ### INICIO CÓDIGO A AÑADIR ###
-        // Calcula un margen superior de 64dp (para que la brújula quede BAJO la barra)
         val topMarginPx = (70 * resources.displayMetrics.density).toInt()
-        // Calcula un margen derecho de 16dp (estándar)
         val rightMarginPx = (16 * resources.displayMetrics.density).toInt()
-
-        // Mueve la brújula para que no sea tapada
         map.uiSettings.setCompassMargins(0, topMarginPx, rightMarginPx, 0)
-        // ### FIN CÓDIGO A AÑADIR ###
 
         // Carga el estilo CLARO (styleLIGHT) por defecto
         map.setStyle(styleLIGHT, Style.OnStyleLoaded { style ->
-            onStyleLoaded(style) // Llama a la nueva función
+            onStyleLoaded(style)
         })
 
-        // --- ### INICIO DE LA MODIFICACIÓN (AÑADIR ESTE LISTENER) ### ---
         map.addOnCameraIdleListener {
-            // Se llama cuando el usuario deja de mover el mapa
             val newBearing = map.cameraPosition.bearing
-
-            // Definimos "rotado" como estar entre 90 y 270 grados
             val shouldMapBeRotated = newBearing > 90 && newBearing < 270
 
-            // Si el estado (rotado / no rotado) no ha cambiado, no hacemos nada
             if (shouldMapBeRotated == isMapRotated) {
                 return@addOnCameraIdleListener
             }
 
-            // El estado cambió, lo actualizamos y aplicamos el nuevo estilo de íconos
             isMapRotated = shouldMapBeRotated
             Log.d("MapRotation", "Cambiando a estado rotado: $isMapRotated")
 
-            // Obtenemos el estilo y actualizamos la capa del bus
             map.getStyle { style ->
-                // Asegurarse de que la capa exista antes de intentar modificarla
                 val busLayer = style.getLayer("bus-layer") as? SymbolLayer
                 busLayer?.let {
-                    // Aplicamos la NUEVA expresión de íconos
                     it.setProperties(
                         PropertyFactory.iconImage(createBusIconExpression(isMapRotated))
                     )
                 }
             }
         }
-        // --- ### FIN DE LA MODIFICACIÓN ### ---
 
-
-        // --- ### INICIO DE LA MODIFICACIÓN ### ---
-        // Asignamos nuestro adapter personalizado para los globos de info
         map.setInfoWindowAdapter(CustomInfoWindowAdapter())
-        // --- ### FIN DE LA MODIFICACIÓN ### ---
 
-        // El click listener para los paraderos se queda aquí
         map.addOnMapClickListener { point ->
             val screenPoint = map.projection.toScreenLocation(point)
 
-            // 1. Priorizar click en el bus
             val busFeatures = map.queryRenderedFeatures(screenPoint, "bus-layer")
             if (busFeatures.isNotEmpty()) {
                 busFeatures[0]?.let {
-                    handleBusClick(it) // Llama a la nueva función
+                    handleBusClick(it)
                 }
-                return@addOnMapClickListener true // Click manejado
+                return@addOnMapClickListener true
             }
 
-            // 2. Si no, click en el paradero
             val paraderoFeatures = map.queryRenderedFeatures(screenPoint, "paradero-layer")
             if (paraderoFeatures.isNotEmpty()) {
                 val stopId = paraderoFeatures[0].getStringProperty("stop_id")
                 if (stopId != null) {
-                    handleParaderoClick(stopId) // Esta función ahora limpiará el globo
+                    handleParaderoClick(stopId)
                 }
-                return@addOnMapClickListener true // Click manejado
+                return@addOnMapClickListener true
             }
 
-            // --- INICIO DE MODIFICACIÓN ---
-            // 3. Click en el mapa (ni bus, ni paradero)
-            clearInfoMarker() // Limpia el globo de info del bus
-            // --- FIN DE MODIFICACIÓN ---
-
+            clearInfoMarker()
             true
         }
     }
 
-    // --- NUEVA FUNCIÓN onStyleLoaded ---
-    /**
-     * Carga todas las capas, íconos y marcadores en el estilo actual del mapa.
-     * Se llama cada vez que se cambia el estilo (2D o 3D).
-     */
+    // --- NUEVA FUNCIÓN onStyleLoaded (MODIFICADA para pendingAction) ---
     private fun onStyleLoaded(style: Style) {
         this.mapStyle = style
         Log.d("MainActivity", "Estilo cargado: ${style.uri}")
 
-        // Recarga todos los elementos visuales
         loadMapIcons(style)
         setupParaderoLayer(style)
         setupBusLayer(style)
-        addTurismoMarkers() // Esto vuelve a añadir los marcadores de turismo
+        addTurismoMarkers()
 
-        // Vuelve a activar la ubicación en el nuevo estilo
         enableLocation(style)
         startBusDataFetching()
 
-
-        // Reinicia el dibujado de rutas si había una seleccionada
         if (selectedRouteId != null && selectedDirectionId != null) {
             val route = GtfsDataManager.routes[selectedRouteId]
             if (route != null) {
                 drawRoute(route, selectedDirectionId!!)
             }
         } else {
-            // Asegura que los paraderos cercanos se muestren
             sharedViewModel.nearbyStops.value?.let { showParaderosOnMap(it) }
         }
 
-        // Vuelve a aplicar el padding del BottomSheet
         if (::bottomSheetBehavior.isInitialized && ::map.isInitialized) {
             val screenHeight = resources.displayMetrics.heightPixels
             val currentPadding = screenHeight - findViewById<View>(R.id.bottom_sheet).top
             if (currentPadding > 0) {
                 map.setPadding(0, 0, 0, currentPadding)
             } else {
-                map.setPadding(0, 0, 0, peekHeightInPixels) // Failsafe
+                map.setPadding(0, 0, 0, peekHeightInPixels)
             }
         }
 
         isStyleLoading = false
 
-        // Vuelve a iniciar el "fetch" de buses
-        // (No es necesario llamarlo explícitamente, el loop en startBusDataFetching se encarga)
+        // --- EJECUTAR ACCIÓN PENDIENTE (SI EXISTE) ---
+        pendingAction?.invoke()
+        pendingAction = null
     }
 
-    // --- NUEVA FUNCIÓN toggleMapStyle ---
-    /**
-     * Cambia entre el estilo 2D y 3D.
-     */
     private fun toggleMapStyle() {
         if (!::map.isInitialized || isStyleLoading) return
 
         isStyleLoading = true
-
-        // Incrementa el estado y vuelve a 0 si pasa de 2
-        // (0 = Claro, 1 = Oscuro, 2 = Satélite)
         currentMapStyleState = (currentMapStyleState + 1) % 3
 
         when (currentMapStyleState) {
-
-            0 -> { // ESTADO 0: Aplicar CLARO
+            0 -> {
                 Log.d("MapStyle", "Cambiando a Modo Claro")
-                map.setStyle(styleLIGHT, Style.OnStyleLoaded { style ->
-                    onStyleLoaded(style) // Recarga todo
-                })
-
+                map.setStyle(styleLIGHT, Style.OnStyleLoaded { style -> onStyleLoaded(style) })
             }
-
-            1 -> { // ESTADO 1: Aplicar OSCURO
+            1 -> {
                 Log.d("MapStyle", "Cambiando a Modo Oscuro")
-                map.setStyle(styleDARK, Style.OnStyleLoaded { style ->
-                    onStyleLoaded(style) // Recarga todo
-                })
+                map.setStyle(styleDARK, Style.OnStyleLoaded { style -> onStyleLoaded(style) })
             }
-
-            2 -> { // ESTADO 2: Aplicar SATÉLITE
+            2 -> {
                 Log.d("MapStyle", "Cambiando a Modo Satélite")
-                map.setStyle(styleSATELLITE_HYBRID, Style.OnStyleLoaded { style ->
-                    onStyleLoaded(style) // Recarga todo
-                })
+                map.setStyle(styleSATELLITE_HYBRID, Style.OnStyleLoaded { style -> onStyleLoaded(style) })
             }
         }
     }
 
-    // --- loadMapIcons (Corregido) ---
     private fun loadMapIcons(style: Style) {
         try {
             style.addImage("paradero-icon", BitmapFactory.decodeResource(resources, R.drawable.ic_paradero))
@@ -941,7 +875,6 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    // --- handleParaderoClick (Corregido) ---
     private fun handleParaderoClick(stopId: String) {
         clearInfoMarker()
         sharedViewModel.selectStop(stopId)
@@ -950,7 +883,6 @@ class MainActivity : AppCompatActivity(),
         }
         val routesForStop = GtfsDataManager.getRoutesForStop(stopId)
         if (routesForStop.isNotEmpty()) {
-            //Toast.makeText(this, "Mostrando rutas para el paradero $stopId", Toast.LENGTH_SHORT).show()
             showCustomNotification("Mostrando rutas para el paradero $stopId")
             if (supportFragmentManager.backStackEntryCount > 0) {
                 supportFragmentManager.popBackStack()
@@ -960,13 +892,11 @@ class MainActivity : AppCompatActivity(),
             viewPager.setCurrentItem(2, true)
             bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
         } else {
-            // Toast.makeText(this, "No se encontraron rutas para el paradero $stopId", Toast.LENGTH_SHORT).show()
             showCustomNotification("No se encontraron rutas para el paradero $stopId")
             sharedViewModel.setRouteFilter(emptyList())
         }
     }
 
-    // --- showTurismoDetail (Corregido) ---
     override fun showTurismoDetail(punto: PuntoTuristico) {
         if (!::map.isInitialized) {
             doShowTurismoDetail(punto)
@@ -1001,7 +931,6 @@ class MainActivity : AppCompatActivity(),
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
     }
 
-    // --- findAndShowStopsAroundPoint (Corregido) ---
     private fun findAndShowStopsAroundPoint(lat: Double, lon: Double) {
         lifecycleScope.launch(Dispatchers.Default) {
             val paraderosCercanos = GtfsDataManager.stops.values
@@ -1027,7 +956,6 @@ class MainActivity : AppCompatActivity(),
             .commit()
     }
 
-    // --- showRoutesForStop (sin cambios) ---
     override fun showRoutesForStop(stopId: String) {
         val routesForStop = GtfsDataManager.getRoutesForStop(stopId)
         sharedViewModel.setRouteFilter(routesForStop)
@@ -1036,25 +964,18 @@ class MainActivity : AppCompatActivity(),
         findViewById<View>(R.id.bottom_sheet_content).visibility = View.VISIBLE
     }
 
-    // --- hideDetailFragment (sin cambios) ---
     override fun hideDetailFragment() {
         supportFragmentManager.popBackStack()
         findViewById<View>(R.id.bottom_sheet_content).visibility = View.VISIBLE
     }
 
-    // --- centerMapOnPoint (sin cambios) ---
     override fun centerMapOnPoint(lat: Double, lon: Double) {
         if (::map.isInitialized) {
             map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 16.0), 1500)
         }
     }
 
-    // --- setupBusLayer (Corregido) ---
-    // --- setupBusLayer (MODIFICADO para Modo Espejo) ---
-    // --- setupBusLayer (MODIFICADO para rotación de mapa) ---
     private fun setupBusLayer(style: Style) {
-
-        // 1. Definimos los íconos (TU CÓDIGO ORIGINAL, SIN CAMBIOS)
         val routeIcons = mapOf(
             "467" to R.drawable.linea_2, "468" to R.drawable.linea_3, "469" to R.drawable.linea_4,
             "470" to R.drawable.linea_6, "471" to R.drawable.linea_7, "472" to R.drawable.linea_8,
@@ -1063,7 +984,6 @@ class MainActivity : AppCompatActivity(),
             "475" to R.drawable.linea_13, "466" to R.drawable.linea_1,
         )
 
-        // 2. Definimos los íconos ESPEJO (TU CÓDIGO ORIGINAL, SIN CAMBIOS)
         val routeIconsEspejo = mapOf(
             "467" to R.drawable.linea_2_espejo, "468" to R.drawable.linea_3_espejo, "469" to R.drawable.linea_4_espejo,
             "470" to R.drawable.linea_6_espejo, "471" to R.drawable.linea_7_espejo, "472" to R.drawable.linea_8_espejo,
@@ -1072,19 +992,15 @@ class MainActivity : AppCompatActivity(),
             "475" to R.drawable.linea_13_espejo, "466" to R.drawable.linea_1_espejo
         )
 
-        // 3. Cargar TODOS los íconos (MODIFICADO para sufijos -normal y -espejo)
         try {
-            // Carga el bus genérico (default) y su espejo
             try {
                 style.addImage("bus-icon-default-normal", BitmapFactory.decodeResource(resources, R.drawable.ic_bus))
             } catch (e: Exception) { Log.e("SetupBusLayer", "Error cargando ic_bus.png", e) }
 
             try {
-                // (Asegúrate de que 'ic_bus_espejo.png' exista en res/drawable)
                 style.addImage("bus-icon-default-espejo", BitmapFactory.decodeResource(resources, R.drawable.ic_bus_espejo))
             } catch (e: Exception) { Log.e("SetupBusLayer", "Error cargando ic_bus_espejo.png", e) }
 
-            // Carga los íconos de ruta (linea_X) y sus espejos
             routeIcons.forEach { (routeId, resourceId) ->
                 try {
                     style.addImage("bus-icon-$routeId-normal", BitmapFactory.decodeResource(resources, resourceId))
@@ -1098,37 +1014,22 @@ class MainActivity : AppCompatActivity(),
 
         } catch (e: Exception) { Log.e("SetupBusLayer", "Error al cargar los íconos: ${e.message}") }
 
-        // 4. Añadir la fuente (TU CÓDIGO ORIGINAL, SIN CAMBIOS)
         style.addSource(GeoJsonSource("bus-source"))
 
-        // --- ### INICIO DE LA MODIFICACIÓN (Usar la nueva función) ### ---
-        // Ya NO construimos los 'cases' aquí.
-        // Llamamos a la función helper para obtener la expresión INICIAL.
-        // Usamos 'isMapRotated' (que será 'false' la primera vez)
         val iconExpression = createBusIconExpression(isMapRotated)
-        // --- ### FIN DE LA MODIFICACIÓN ### ---
-
 
         val busLayer = SymbolLayer("bus-layer", "bus-source").apply {
             withProperties(
-                // Aplicar la expresión de ícono inicial
                 PropertyFactory.iconImage(iconExpression),
-
-                // --- El resto de tus propiedades NO CAMBIAN ---
                 PropertyFactory.iconAllowOverlap(true),
                 PropertyFactory.iconIgnorePlacement(true),
                 PropertyFactory.iconSize(0.5f),
                 PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(11.99f, 0f), stop(12f, 1f))),
-
-                // (OJO: Tu código original no tenía la rotación por 'bearing'
-                // ni el 'text' de I/V, así que los omito para mantenerlo simple)
             )
         }
         style.addLayer(busLayer)
     }
 
-
-    // --- setupParaderoLayer (CORREGIDO: Vuelve a los valores originales) ---
     private fun setupParaderoLayer(style: Style) {
         if (style.getSource("paradero-source") == null) {
             style.addSource(GeoJsonSource("paradero-source"))
@@ -1226,14 +1127,12 @@ class MainActivity : AppCompatActivity(),
         val geoJsonString = """{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [${routePoints.joinToString { "[${it.longitude},${it.latitude}]" }}]}}"""
 
         val sourceId = "route-source-${route.routeId}-$directionId"
-        // Asegurarse de que el source no exista ya (al cambiar de estilo)
         if (style.getSource(sourceId) == null) {
             style.addSource(GeoJsonSource(sourceId, geoJsonString))
         }
         currentRouteSourceId = sourceId
 
         val layerId = "route-layer-${route.routeId}-$directionId"
-        // Asegurarse de que la capa no exista ya (al cambiar de estilo)
         if (style.getLayer(layerId) == null) {
             val routeLayer = LineLayer(layerId, sourceId).apply {
                 withProperties(
@@ -1289,8 +1188,6 @@ class MainActivity : AppCompatActivity(),
         }
         currentRouteLayerId = null
         currentRouteSourceId = null
-        // No limpies los paraderos aquí, deja que onStyleLoaded o el observer se encarguen
-        // showParaderosOnMap(emptyList())
     }
 
     private fun addTurismoMarkers() {
@@ -1299,11 +1196,10 @@ class MainActivity : AppCompatActivity(),
         val scaledBitmap = Bitmap.createScaledBitmap(originalBitmap, 80, 80, false)
         val icon = iconFactory.fromBitmap(scaledBitmap)
 
-        turismoMarkers.forEach { it.remove() } // Limpia la lista interna
+        turismoMarkers.forEach { it.remove() }
         turismoMarkers.clear()
 
-        // --- CORRECCIÓN AQUÍ: Usar TurismoDataManager ---
-        TurismoDataManager.puntosTuristicos.forEach { punto -> // <-- CAMBIO
+        TurismoDataManager.puntosTuristicos.forEach { punto ->
             val marker = map.addMarker(
                 MarkerOptions().position(LatLng(punto.latitud, punto.longitud))
                     .title(punto.nombre)
@@ -1316,8 +1212,7 @@ class MainActivity : AppCompatActivity(),
         map.setOnMarkerClickListener { marker ->
             if (turismoMarkers.contains(marker)) {
                 marker.snippet?.toIntOrNull()?.let { puntoId ->
-                    // --- CORRECCIÓN AQUÍ: Usar TurismoDataManager ---
-                    TurismoDataManager.puntosTuristicos.find { it.id == puntoId }?.let { punto -> // <-- CAMBIO
+                    TurismoDataManager.puntosTuristicos.find { it.id == puntoId }?.let { punto ->
                         showTurismoDetail(punto)
                         return@setOnMarkerClickListener true
                     }
@@ -1327,12 +1222,9 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-
     private fun startBusDataFetching() {
         lifecycleScope.launch {
             while (isActive) {
-                // --- MODIFICACIÓN ---
-                // Solo busca buses si el mapa y el estilo están listos
                 if (::map.isInitialized && mapStyle != null && mapStyle!!.isFullyLoaded) {
                     val centerLocation = if(::map.isInitialized) {
                         val lastKnownLoc = try { map.locationComponent.lastKnownLocation } catch (e: Exception) { null }
@@ -1383,8 +1275,6 @@ class MainActivity : AppCompatActivity(),
     private fun updateBusMarkers(centerLocation: Location? = null) {
         val feed = lastFeedMessage ?: return
 
-        // --- MODIFICACIÓN ---
-        // Asegurarse de que el estilo esté listo antes de intentar actualizarlo
         if (mapStyle == null || !mapStyle!!.isFullyLoaded) {
             return
         }
@@ -1411,7 +1301,7 @@ class MainActivity : AppCompatActivity(),
                                 location.latitude, location.longitude,
                                 position.latitude.toDouble(), position.longitude.toDouble()
                             )
-                            if (distance <= 1000) { // Radio de 1km
+                            if (distance <= 1000) {
                                 shouldShow = true
                             }
                         } else {
@@ -1423,31 +1313,25 @@ class MainActivity : AppCompatActivity(),
                         val point = Point.fromLngLat(position.longitude.toDouble(), position.latitude.toDouble())
                         val feature = Feature.fromGeometry(point)
 
-                        // --- INICIO DE MODIFICACIÓN ---
-                        // Añadimos más datos al "feature" del bus
                         feature.addStringProperty("routeId", trip.routeId)
-                        feature.addNumberProperty("directionId", trip.directionId) // ID de Dirección
+                        feature.addNumberProperty("directionId", trip.directionId)
                         feature.addNumberProperty("bearing", position.bearing)
 
-                        // Añadir info del vehículo (con chequeos de seguridad)
                         if (vehicle.hasVehicle()) {
                             val vehicleDesc = vehicle.vehicle
                             if (vehicleDesc.hasLicensePlate()) {
-                                feature.addStringProperty("licensePlate", vehicleDesc.licensePlate) // Patente
+                                feature.addStringProperty("licensePlate", vehicleDesc.licensePlate)
                             }
                             if (vehicleDesc.hasId()) {
-                                feature.addStringProperty("vehicleId", vehicleDesc.id) // ID del vehículo
+                                feature.addStringProperty("vehicleId", vehicleDesc.id)
                             }
                         }
-                        // --- FIN DE MODIFICACIÓN ---
-
                         busFeatures.add(feature)
                     }
                 }
             }
             val featureCollection = FeatureCollection.fromFeatures(busFeatures)
             withContext(Dispatchers.Main) {
-                // Chequeo final por si el estilo cambió justo ahora
                 if (mapStyle != null && mapStyle!!.isFullyLoaded) {
                     mapStyle?.getSourceAs<GeoJsonSource>("bus-source")?.setGeoJson(featureCollection)
                 }
@@ -1489,11 +1373,8 @@ class MainActivity : AppCompatActivity(),
     }
 
 
-    // ===== INICIO DE LAS 4 NUEVAS FUNCIONES PARA "CÓMO LLEGAR" =====
+    // ===== FUNCIONES AUXILIARES =====
 
-    /**
-     * Función auxiliar: Busca TODOS los GtfsStop dentro de un radio.
-     */
     private fun findAllNearbyStops(lat: Double, lon: Double, radiusInMeters: Float = 500f): List<GtfsStop> {
         return GtfsDataManager.stops.values
             .map { stop ->
@@ -1504,18 +1385,12 @@ class MainActivity : AppCompatActivity(),
             .map { it.first }
     }
 
-    /**
-     * Función auxiliar: Encuentra el índice del punto del trazado (Shape) más cercano a un paradero (GtfsStop).
-     */
     private fun findNearestShapePointIndex(shapePoints: List<LatLng>, stop: GtfsStop): Int {
         return shapePoints.indices.minByOrNull { index ->
             distanceBetween(stop.location.latitude, stop.location.longitude, shapePoints[index].latitude, shapePoints[index].longitude)
         } ?: -1
     }
 
-    /**
-     * Dibuja solo el segmento de la ruta desde el Paradero A hasta el Paradero B.
-     */
     override fun drawRouteSegment(route: GtfsRoute, directionId: Int, stopA: GtfsStop, stopB: GtfsStop) {
         clearDrawnElements()
         selectedRouteId = route.routeId
@@ -1525,7 +1400,7 @@ class MainActivity : AppCompatActivity(),
 
         val trip = GtfsDataManager.trips.values.find { it.routeId == route.routeId && it.directionId == directionId }
         val shapeId = trip?.shapeId
-        val routePoints = GtfsDataManager.shapes[shapeId] // Esto es List<LatLng>
+        val routePoints = GtfsDataManager.shapes[shapeId]
 
         if (routePoints == null || routePoints.isEmpty()) {
             Toast.makeText(this, "Trazado no disponible.", Toast.LENGTH_SHORT).show()
@@ -1537,7 +1412,7 @@ class MainActivity : AppCompatActivity(),
 
         if (indexA == -1 || indexB == -1 || indexA >= indexB) {
             Log.w("DrawRouteSegment", "Error al encontrar segmento (A:$indexA, B:$indexB). Dibujando ruta completa.")
-            drawRoute(route, directionId) // Fallback a ruta completa
+            drawRoute(route, directionId)
             return
         }
 
@@ -1547,14 +1422,12 @@ class MainActivity : AppCompatActivity(),
         val geoJsonString = """{"type": "Feature", "geometry": {"type": "LineString", "coordinates": $coordinates}}"""
 
         val sourceId = "route-source-segment"
-        // Asegurarse de que el source no exista ya (al cambiar de estilo)
         if (style.getSource(sourceId) == null) {
             style.addSource(GeoJsonSource(sourceId, geoJsonString))
         }
         currentRouteSourceId = sourceId
 
         val layerId = "route-layer-segment"
-        // Asegurarse de que la capa no exista ya (al cambiar de estilo)
         if (style.getLayer(layerId) == null) {
             currentRouteLayerId = layerId
             val routeLayer = LineLayer(layerId, sourceId).apply {
@@ -1579,9 +1452,6 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    /**
-     * Implementación de la interfaz para el botón "Cómo Llegar" a PUNTO TURÍSTICO.
-     */
     override fun onGetDirectionsClicked(punto: PuntoTuristico) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(this, "Se necesita permiso de ubicación para 'Cómo llegar'", Toast.LENGTH_LONG).show()
@@ -1602,20 +1472,16 @@ class MainActivity : AppCompatActivity(),
                 val puntoLat = punto.latitud
                 val puntoLon = punto.longitud
 
-                // Búsqueda con radio flexible
                 var stopsNearA: List<GtfsStop> = emptyList()
                 var stopsNearB: List<GtfsStop> = emptyList()
-                val searchRadii = listOf(500f, 1000f, 2000f) // 500m, 1km, 2km
+                val searchRadii = listOf(500f, 1000f, 2000f)
                 var radiusUsedA: Float? = null
                 var radiusUsedB: Float? = null
-
-                Log.d("Directions", "Iniciando búsqueda de paraderos...")
 
                 for (radius in searchRadii) {
                     stopsNearA = findAllNearbyStops(userLat, userLon, radius)
                     if (stopsNearA.isNotEmpty()) {
                         radiusUsedA = radius
-                        Log.d("Directions", "Paraderos (A) encontrados a ${radius}m")
                         break
                     }
                 }
@@ -1624,23 +1490,20 @@ class MainActivity : AppCompatActivity(),
                     stopsNearB = findAllNearbyStops(puntoLat, puntoLon, radius)
                     if (stopsNearB.isNotEmpty()) {
                         radiusUsedB = radius
-                        Log.d("Directions", "Paraderos (B) encontrados a ${radius}m")
                         break
                     }
                 }
 
                 if (stopsNearA.isEmpty()) {
-                    Log.w("Directions", "No se encontraron paraderos (A) cerca del usuario (radio max ${searchRadii.last()}m)")
-                    Toast.makeText(this, "No se encontraron paraderos cercanos a tu ubicación (radio max 2km)", Toast.LENGTH_LONG).show()
+                    Log.w("Directions", "No se encontraron paraderos (A) cerca del usuario")
+                    Toast.makeText(this, "No se encontraron paraderos cercanos a tu ubicación", Toast.LENGTH_LONG).show()
                     return@addOnSuccessListener
                 }
                 if (stopsNearB.isEmpty()) {
-                    Log.w("Directions", "No se encontraron paraderos (B) cerca del destino (radio max ${searchRadii.last()}m)")
-                    Toast.makeText(this, "No se encontraron paraderos cercanos al destino (radio max 2km)", Toast.LENGTH_LONG).show()
+                    Log.w("Directions", "No se encontraron paraderos (B) cerca del destino")
+                    Toast.makeText(this, "No se encontraron paraderos cercanos al destino", Toast.LENGTH_LONG).show()
                     return@addOnSuccessListener
                 }
-
-                Log.d("Directions", "Búsqueda exitosa. A: ${stopsNearA.size} (radio ${radiusUsedA}m), B: ${stopsNearB.size} (radio ${radiusUsedB}m)")
 
                 var bestRouteFound: DisplayRouteInfo? = null
                 var bestStopA: GtfsStop? = null
@@ -1650,8 +1513,6 @@ class MainActivity : AppCompatActivity(),
                 for (stopA in stopsNearA) {
                     val routesA = GtfsDataManager.getRoutesForStop(stopA.stopId)
                     val routeSetA = routesA.map { it.route.routeId to it.directionId }.toSet()
-
-
 
                     for (stopB in stopsNearB) {
                         if (stopA.stopId == stopB.stopId) continue
@@ -1668,7 +1529,7 @@ class MainActivity : AppCompatActivity(),
                             val indexA = stopSequence.indexOfFirst { it.stopId == stopA.stopId }
                             val indexB = stopSequence.indexOfFirst { it.stopId == stopB.stopId }
 
-                            if (indexA != -1 && indexB != -1 && indexA < indexB) { // Valida A -> B
+                            if (indexA != -1 && indexB != -1 && indexA < indexB) {
                                 bestRouteFound = commonRoute
                                 bestStopA = stopA
                                 bestStopB = stopB
@@ -1684,12 +1545,10 @@ class MainActivity : AppCompatActivity(),
                     val route = bestRouteFound.route
                     val directionId = bestRouteFound.directionId
 
-                    Log.d("Directions", "Ruta válida: ${route.shortName} (Desde ${bestStopA.name} a ${bestStopB.name})")
-                    // Toast.makeText(this, "Toma la Línea ${route.shortName} en ${bestStopA.name}", Toast.LENGTH_LONG).show()
-                    showCustomNotification("Toma la Línea ${route.shortName} en ${bestStopA.name}") //
+                    Log.d("Directions", "Ruta válida: ${route.shortName}")
+                    showCustomNotification("Toma la Línea ${route.shortName} en ${bestStopA.name}")
 
                     drawRouteSegment(route, directionId, bestStopA, bestStopB)
-
                     sharedViewModel.selectStop(bestStopA.stopId)
 
                 } else {
@@ -1698,7 +1557,6 @@ class MainActivity : AppCompatActivity(),
                     } else {
                         "No se encontró una ruta de bus directa"
                     }
-                    //Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
                     showCustomNotification(toastMessage)
                     Log.d("Directions", "No se encontró ruta válida A -> B.")
 
@@ -1712,7 +1570,7 @@ class MainActivity : AppCompatActivity(),
                         val bounds = boundsBuilder.build()
                         map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 150), 1000)
                     } catch (e: Exception) {
-                        Log.e("Directions", "Error al crear bounds para centrar mapa", e)
+                        Log.e("Directions", "Error al crear bounds", e)
                     }
                 }
             }
@@ -1721,9 +1579,6 @@ class MainActivity : AppCompatActivity(),
                 Toast.makeText(this, "Error al obtener ubicación", Toast.LENGTH_LONG).show()
             }
     }
-
-    // ===== FIN DE LAS 4 NUEVAS FUNCIONES =====
-
 
     // --- Ciclo de Vida (sin cambios) ---
     override fun onStart() { super.onStart(); mapView.onStart() }
@@ -1737,9 +1592,9 @@ class MainActivity : AppCompatActivity(),
     private fun clearInfoMarker() {
         currentInfoMarker?.let {
             if (::map.isInitialized) {
-                map.deselectMarker(it) // Oculta el globo
+                map.deselectMarker(it)
             }
-            it.remove()            // Elimina el marcador invisible
+            it.remove()
         }
         currentInfoMarker = null
     }
@@ -1747,23 +1602,17 @@ class MainActivity : AppCompatActivity(),
     private inner class CustomInfoWindowAdapter : MapLibreMap.InfoWindowAdapter {
 
         override fun getInfoWindow(marker: Marker): View? {
-            // Solo queremos personalizar el globo del bus (currentInfoMarker)
-            // Para los de turismo (turismoMarkers), usamos 'null' para
-            // que sigan usando el globo por defecto.
             if (marker != currentInfoMarker) {
                 return null
             }
 
-            // Inflamos nuestro layout personalizado
             val view = layoutInflater.inflate(R.layout.custom_bus_info_window, null)
             val tvLine: TextView = view.findViewById(R.id.tv_info_line)
             val tvPatent: TextView = view.findViewById(R.id.tv_info_patent)
 
-            // Asignamos los textos que pusimos en handleBusClick
             tvLine.text = marker.title
             tvPatent.text = marker.snippet
 
-            // Ocultamos la patente si no hay
             if (marker.snippet.isNullOrBlank()) {
                 tvPatent.visibility = View.GONE
             } else {
@@ -1772,46 +1621,30 @@ class MainActivity : AppCompatActivity(),
 
             return view
         }
-
-        // --- ### FUNCIÓN ELIMINADA ### ---
-        // La función getInfoContents(marker: Marker) se eliminó
-        // porque no existe en la interfaz de MapLibre.
     }
 
-    // --- ### INICIO DE LA MODIFICACIÓN (NUEVA FUNCIÓN) ### ---
-    /**
-     * Crea la expresión 'switchCase' para los íconos de bus,
-     * invirtiendo la lógica 'espejo' si el mapa está rotado.
-     *
-     * @param isRotated Si es true, invierte la lógica normal (Ida=espejo, Vuelta=normal)
-     */
     private fun createBusIconExpression(isRotated: Boolean): Expression {
         val cases = mutableListOf<Expression>()
 
-        // Los IDs de tus rutas (de tu código original en setupBusLayer)
         val routeIds = listOf(
             "466", "467", "468", "469", "470", "471", "472", "954", "478", "477", "473", "476", "474", "475"
         )
 
-        // Lógica de inversión que pediste:
-        val iconForIda = if (isRotated) "normal" else "espejo"     // Ida (0): normal si está rotado
-        val iconForVuelta = if (isRotated) "espejo" else "normal" // Vuelta (1): espejo si está rotado
+        val iconForIda = if (isRotated) "normal" else "espejo"
+        val iconForVuelta = if (isRotated) "espejo" else "normal"
 
-        // 1. Construimos los 'cases' para cada ruta
         routeIds.forEach { routeId ->
-            cases.add(eq(get("routeId"), literal(routeId))) // Condición: ej. routeId == "466"
+            cases.add(eq(get("routeId"), literal(routeId)))
 
-            // Valor (que depende de directionId):
             cases.add(
                 switchCase(
-                    eq(get("directionId"), 0), literal("bus-icon-$routeId-$iconForIda"), // Ida
-                    eq(get("directionId"), 1), literal("bus-icon-$routeId-$iconForVuelta"), // Vuelta
-                    literal("bus-icon-$routeId-normal") // Fallback
+                    eq(get("directionId"), 0), literal("bus-icon-$routeId-$iconForIda"),
+                    eq(get("directionId"), 1), literal("bus-icon-$routeId-$iconForVuelta"),
+                    literal("bus-icon-$routeId-normal")
                 )
             )
         }
 
-        // 2. Añadimos el 'default' al final
         cases.add(
             switchCase(
                 eq(get("directionId"), 0), literal("bus-icon-default-$iconForIda"),
@@ -1822,18 +1655,12 @@ class MainActivity : AppCompatActivity(),
 
         return switchCase(*cases.toTypedArray())
     }
-    // --- ### FIN DE LA MODIFICACIÓN ### ---
 
-    // --- FUNCIÓN CERRAR SESIÓN --- (Sin cambios, solo movida al final)
     private fun cerrarSesion() {
-        auth.signOut() // Cerrar sesión en Firebase
-
-        // Volver a LoginActivity
+        auth.signOut()
         val intent = Intent(this, LoginActivity::class.java)
-        // Limpiar la pila de actividades para que el usuario no pueda "volver"
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         startActivity(intent)
-
-        finish() // Finalizar MainActivity
+        finish()
     }
 }
