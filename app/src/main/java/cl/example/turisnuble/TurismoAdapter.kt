@@ -6,9 +6,9 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import com.bumptech.glide.Glide // <-- NUEVA IMPORTACIÓN
+import com.bumptech.glide.Glide
+import com.bumptech.glide.load.resource.bitmap.CenterCrop
 
-// El constructor ahora incluye la acción de clic
 class TurismoAdapter(
     private val puntosTuristicos: List<PuntoTuristico>,
     private val onItemClick: (PuntoTuristico) -> Unit
@@ -18,6 +18,7 @@ class TurismoAdapter(
         val imagen: ImageView = view.findViewById(R.id.imagen_turismo)
         val nombre: TextView = view.findViewById(R.id.nombre_turismo)
         val direccion: TextView = view.findViewById(R.id.direccion_turismo)
+        val categoria: TextView = view.findViewById(R.id.categoria_turismo) // <-- NUEVO
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PuntoTuristicoViewHolder {
@@ -29,17 +30,20 @@ class TurismoAdapter(
     override fun onBindViewHolder(holder: PuntoTuristicoViewHolder, position: Int) {
         val punto = puntosTuristicos[position]
 
-        // FIX PARA FLUIDEZ: Usar Glide para cargar la imagen asíncronamente, decodificarla
-        // en un hilo secundario y cachearla, mejorando drásticamente el scrolling.
+        // 1. Cargar Imagen desde URL (Internet)
         Glide.with(holder.itemView.context)
-            .load(punto.imagenId) // Carga la imagen desde los recursos (R.drawable.*)
-            .centerCrop()
+            .load(punto.imagenUrl) // <-- CAMBIO: Usamos la URL del objeto
+            .placeholder(R.drawable.ic_launcher_background) // Imagen mientras carga (puedes cambiarla por tu logo)
+            .error(R.drawable.ic_close) // Imagen si falla la carga
+            .transform(CenterCrop()) // Ajuste para que llene el espacio correctamente
             .into(holder.imagen)
 
+        // 2. Asignar textos
         holder.nombre.text = punto.nombre
         holder.direccion.text = punto.direccion
+        holder.categoria.text = punto.categoria.uppercase() // <-- NUEVO: Mostramos la categoría en mayúsculas
 
-        // Asignamos la acción de clic a toda la fila
+        // 3. Click Listener
         holder.itemView.setOnClickListener {
             onItemClick(punto)
         }

@@ -1,7 +1,6 @@
 package cl.example.turisnuble
 
-import androidx.annotation.DrawableRes
-import java.io.Serializable // <-- NUEVA IMPORTACIÓN
+import java.io.Serializable
 
 data class PuntoTuristico(
     val id: Int,
@@ -9,5 +8,6 @@ data class PuntoTuristico(
     val direccion: String,
     val latitud: Double,
     val longitud: Double,
-    @DrawableRes val imagenId: Int // Usaremos una imagen de nuestros recursos
-) : Serializable // <-- IMPLEMENTACIÓN AGREGADA
+    val categoria: String, // <-- NUEVO: Categoría del lugar
+    val imagenUrl: String  // <-- CAMBIO: Ahora es una URL (String), no un ID (Int)
+) : Serializable

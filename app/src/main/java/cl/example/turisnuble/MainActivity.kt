@@ -559,47 +559,34 @@ class MainActivity : AppCompatActivity(),
             .map { SearchResult(SearchResultType.PARADERO, it.name, "Paradero ${it.stopId}", it) }
 
 
-        // --- INICIO DE LA MODIFICACIÓN SIMPLE ---
-
-        // 2. Buscamos en Rutas (MODIFICADO)
-
+        // 2. Buscamos en Rutas (SIN CAMBIOS)
         val queryLower = query.lowercase()
         var queryRutas = query // Por defecto, buscamos el texto tal cual
 
-        // CASO 1: El usuario escribió "linea" o "línea" (y nada más)
         if (queryLower == "linea" || queryLower == "línea") {
-            // Mostramos todas las rutas. La forma más simple es buscar un string vacío.
             queryRutas = ""
-        }
-        // CASO 2: El usuario escribió "linea 13" o "línea 13" (con espacio)
-        else if (queryLower.startsWith("linea ")) {
-            queryRutas = query.substring(6).trim() // 6 = "linea ".length
+        } else if (queryLower.startsWith("linea ")) {
+            queryRutas = query.substring(6).trim()
         } else if (queryLower.startsWith("línea ")) {
-            queryRutas = query.substring(6).trim() // 6 = "línea ".length
+            queryRutas = query.substring(6).trim()
         }
 
         val rutas = GtfsDataManager.routes.values
             .filter {
-                // Filtro 1: El texto original está en el nombre corto o largo
-                // (Ej: si un longName fuera "Linea 13 Centro", lo encontraría aquí)
                 it.shortName.lowercase().contains(query) || it.longName.lowercase().contains(query) ||
-
-                        // Filtro 2: Si modificamos la consulta (queryRutas != query)
-                        // (Ej: query="línea", queryRutas="" -> MUESTRA TODAS)
-                        // (Ej: query="línea 13", queryRutas="13" -> MUESTRA LA 13)
                         (queryRutas != query && (it.shortName.lowercase().contains(queryRutas) || it.longName.lowercase().contains(queryRutas)))
             }
             .map { SearchResult(SearchResultType.RUTA, it.shortName, it.longName, it) }
 
-        // --- FIN DE LA MODIFICACIÓN SIMPLE ---
 
-
-        // 3. Buscamos en Puntos de Turismo (SIN CAMBIOS)
-        val turismo = DatosTurismo.puntosTuristicos
+        // --- CORRECCIÓN AQUÍ: Usar TurismoDataManager ---
+        // 3. Buscamos en Puntos de Turismo
+        val turismo = TurismoDataManager.puntosTuristicos // <-- CAMBIO: Antes era DatosTurismo.puntosTuristicos
             .filter { it.nombre.lowercase().contains(query) }
             .map { SearchResult(SearchResultType.TURISMO, it.nombre, it.direccion, it) }
+        // ------------------------------------------------
 
-        // 4. Combinamos todas las listas y actualizamos el adapter (SIN CAMBIOS)
+        // 4. Combinamos todas las listas y actualizamos el adapter
         val results = (paraderos + rutas + turismo).sortedBy { it.title }
 
         if (results.isNotEmpty()) {
@@ -1307,12 +1294,6 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun addTurismoMarkers() {
-        // --- MODIFICACIÓN IMPORTANTE ---
-        // Los marcadores de MapLibre (que usas para turismo)
-        // se BORRAN automáticamente cuando cambias el estilo.
-        // Esta función ahora se llamará desde 'onStyleLoaded'
-        // para volver a ponerlos.
-
         val iconFactory = IconFactory.getInstance(this@MainActivity)
         val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_turismo)
         val scaledBitmap = Bitmap.createScaledBitmap(originalBitmap, 80, 80, false)
@@ -1321,27 +1302,27 @@ class MainActivity : AppCompatActivity(),
         turismoMarkers.forEach { it.remove() } // Limpia la lista interna
         turismoMarkers.clear()
 
-        DatosTurismo.puntosTuristicos.forEach { punto ->
-            val marker = map.addMarker( // 'map.addMarker' los añade al estilo actual
+        // --- CORRECCIÓN AQUÍ: Usar TurismoDataManager ---
+        TurismoDataManager.puntosTuristicos.forEach { punto -> // <-- CAMBIO
+            val marker = map.addMarker(
                 MarkerOptions().position(LatLng(punto.latitud, punto.longitud))
                     .title(punto.nombre)
                     .snippet(punto.id.toString())
                     .icon(icon)
             )
-            turismoMarkers.add(marker) // Guarda la referencia
+            turismoMarkers.add(marker)
         }
 
         map.setOnMarkerClickListener { marker ->
-            // Asegurarse de que el click es de un marcador de turismo
             if (turismoMarkers.contains(marker)) {
                 marker.snippet?.toIntOrNull()?.let { puntoId ->
-                    DatosTurismo.puntosTuristicos.find { it.id == puntoId }?.let { punto ->
+                    // --- CORRECCIÓN AQUÍ: Usar TurismoDataManager ---
+                    TurismoDataManager.puntosTuristicos.find { it.id == puntoId }?.let { punto -> // <-- CAMBIO
                         showTurismoDetail(punto)
                         return@setOnMarkerClickListener true
                     }
                 }
             }
-            // Devuelve 'false' para que el click en paraderos (que no son Markers) funcione
             return@setOnMarkerClickListener false
         }
     }

@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Converted to MaterialCardView with modern card design and image -->
 <com.google.android.material.card.MaterialCardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -22,7 +21,6 @@
         android:orientation="horizontal"
         android:minHeight="120dp">
 
-        <!-- Enhanced image with rounded corners and proper aspect ratio -->
         <com.google.android.material.imageview.ShapeableImageView
             android:id="@+id/imagen_turismo"
             android:layout_width="120dp"
@@ -40,7 +38,17 @@
             android:padding="16dp"
             android:gravity="center_vertical">
 
-            <!-- Improved typography with better spacing -->
+            <TextView
+                android:id="@+id/categoria_turismo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:textSize="12sp"
+                android:textColor="?attr/colorPrimary"
+                android:textAllCaps="true"
+                android:textStyle="bold"
+                tools:text="LUGAR HISTÓRICO" />
+
             <TextView
                 android:id="@+id/nombre_turismo"
                 android:layout_width="match_parent"
@@ -56,7 +64,7 @@
                 android:id="@+id/direccion_turismo"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="4dp"
                 android:textSize="14sp"
                 android:textColor="?android:attr/textColorSecondary"
                 android:maxLines="2"
@@ -64,7 +72,6 @@
                 android:drawablePadding="4dp"
                 tools:text="Arauco 505, Chillán" />
 
-            <!-- Added distance indicator placeholder -->
             <TextView
                 android:id="@+id/distancia_turismo"
                 android:layout_width="wrap_content"
@@ -76,8 +83,6 @@
                 android:visibility="gone"
                 tools:text="1.2 km"
                 tools:visibility="visible" />
-
-
 
         </LinearLayout>
 

@@ -29,9 +29,13 @@ class SplashActivity : AppCompatActivity() {
     private lateinit var auth: FirebaseAuth
     private lateinit var statusTextView: TextView
 
-    // (Asegúrate de que esta URL sea la correcta)
-    private val URL_BASE_REMOTA = "https://raw.githubusercontent.com/criz8766/datosgtfschillan/main/"
+    // --- URLs BASE ---
+    // 1. Para GTFS y version.json (Raíz)
+    private val URL_BASE_GTFS = "https://criz8766.github.io/datosgtfschillan/"
+    // 2. Para Turismo (Subcarpeta)
+    private val URL_BASE_TURISMO = "https://criz8766.github.io/datosgtfschillan/puntoturistico/"
 
+    // Archivos GTFS (se descargan de la raíz)
     private val GTFS_FILES = listOf(
         "routes.json",
         "stops.json",
@@ -40,6 +44,9 @@ class SplashActivity : AppCompatActivity() {
         "stopTimes.json",
         "version.json"
     )
+
+    // Archivo de Turismo (se descarga de la subcarpeta)
+    private val TURISMO_FILE = "turismo.json"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,7 +75,12 @@ class SplashActivity : AppCompatActivity() {
             }
 
             statusTextView.text = "Procesando datos..."
+
+            // 1. Cargar GTFS
             GtfsDataManager.loadData(this@SplashActivity)
+
+            // 2. Cargar Turismo (Pasando la URL de la carpeta de turismo para las imágenes)
+            TurismoDataManager.loadData(this@SplashActivity, URL_BASE_TURISMO)
 
             val currentUser = auth.currentUser
             if (currentUser != null && isUserVerified(currentUser)) {
@@ -85,9 +97,9 @@ class SplashActivity : AppCompatActivity() {
 
         if (!versionFile.exists()) {
             Log.d("SplashActivity", "Primera ejecución: Copiando archivos base a almacenamiento interno...")
-            GTFS_FILES.forEach { fileName ->
-                copyAssetToFile(fileName, this)
-            }
+            // Copia inicial desde Assets (Asumimos que turismo.json también está en assets root)
+            GTFS_FILES.forEach { fileName -> copyAssetToFile(fileName, this) }
+            copyAssetToFile(TURISMO_FILE, this)
         } else {
             Log.d("SplashActivity", "Iniciando chequeo de versión remota...")
             try {
@@ -95,10 +107,8 @@ class SplashActivity : AppCompatActivity() {
                 val localVersionJson = JSONObject(versionFile.readText())
                 val localVersion = localVersionJson.optLong("version", 0L)
 
-                // --- INICIO DE MODIFICACIÓN: SINTAXIS CORREGIDA ---
-                val remoteVersionUrl = "${URL_BASE_REMOTA}version.json?_t=$cacheBuster"
-                // --- FIN DE MODIFICACIÓN ---
-
+                // Verificamos version.json en la raíz (GTFS Base)
+                val remoteVersionUrl = "${URL_BASE_GTFS}version.json?_t=$cacheBuster"
                 val url = URL(remoteVersionUrl)
                 val connection = url.openConnection() as HttpURLConnection
                 connection.useCaches = false
@@ -107,22 +117,25 @@ class SplashActivity : AppCompatActivity() {
 
                 val remoteJsonString = connection.inputStream.bufferedReader().use { it.readText() }
                 val remoteVersionJson = JSONObject(remoteJsonString)
-
                 val remoteVersion = remoteVersionJson.optLong("version", 0L)
 
                 Log.d("SplashActivity", "Versión Local: $localVersion, Versión Remota: $remoteVersion")
 
                 if (remoteVersion > localVersion) {
-                    Log.i("SplashActivity", "Nueva versión detectada. Descargando archivos GTFS...")
+                    Log.i("SplashActivity", "Nueva versión detectada. Descargando archivos...")
                     onUpdateRequired()
 
+                    // 1. Descargar GTFS (desde Raíz)
                     GTFS_FILES.forEach { fileName ->
-                        downloadFile(fileName, internalStorageDir, cacheBuster)
+                        downloadFile(fileName, URL_BASE_GTFS, internalStorageDir, cacheBuster)
                     }
 
-                    Log.i("SplashActivity", "Actualización de archivos GTFS completada.")
+                    // 2. Descargar Turismo (desde carpeta puntoturistico)
+                    downloadFile(TURISMO_FILE, URL_BASE_TURISMO, internalStorageDir, cacheBuster)
+
+                    Log.i("SplashActivity", "Actualización completada.")
                 } else {
-                    Log.d("SplashActivity", "Datos GTFS ya están actualizados.")
+                    Log.d("SplashActivity", "Datos ya están actualizados.")
                 }
 
             } catch (e: Exception) {
@@ -131,14 +144,10 @@ class SplashActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Descarga un archivo desde la URL remota y lo guarda en almacenamiento interno.
-     */
-    private fun downloadFile(fileName: String, destinationDir: File, cacheBuster: Long) {
+    // Función helper para descargar aceptando una URL Base dinámica
+    private fun downloadFile(fileName: String, baseUrl: String, destinationDir: File, cacheBuster: Long) {
         try {
-            // --- INICIO DE MODIFICACIÓN: SINTAXIS CORREGIDA ---
-            val remoteUrl = "${URL_BASE_REMOTA}${fileName}?_t=$cacheBuster"
-            // --- FIN DE MODIFICACIÓN ---
+            val remoteUrl = "${baseUrl}${fileName}?_t=$cacheBuster"
 
             val url = URL(remoteUrl)
             val connection = url.openConnection() as HttpURLConnection
@@ -151,15 +160,12 @@ class SplashActivity : AppCompatActivity() {
             val destinationFile = File(destinationDir, fileName)
             destinationFile.writeText(fileContent)
 
-            Log.d("SplashActivity", "Archivo $fileName descargado y guardado.")
+            Log.d("SplashActivity", "Archivo $fileName descargado desde $baseUrl")
         } catch (e: Exception) {
             Log.e("SplashActivity", "Error descargando $fileName", e)
         }
     }
 
-    /**
-     * Función helper para copiar un archivo desde 'assets' al almacenamiento interno 'filesDir'.
-     */
     private fun copyAssetToFile(fileName: String, context: Context) {
         try {
             context.assets.open(fileName).use { inputStream ->
@@ -168,33 +174,23 @@ class SplashActivity : AppCompatActivity() {
                 }
             }
             Log.d("SplashActivity", "Archivo $fileName copiado a filesDir.")
-        } catch (e: Exception)
-        {
+        } catch (e: Exception) {
             Log.e("SplashActivity", "Error copiando $fileName a filesDir.", e)
         }
     }
 
-    // --- FUNCIONES EXISTENTES (SIN CAMBIOS) ---
-
     private fun isUserVerified(user: FirebaseUser): Boolean {
-        if (user.isEmailVerified) {
-            return true
-        }
-        val isGoogleProvider = user.providerData.any { // Corregido 'isGooogleProvider'
-            it.providerId == GoogleAuthProvider.PROVIDER_ID
-        }
-        return isGoogleProvider
+        if (user.isEmailVerified) return true
+        return user.providerData.any { it.providerId == GoogleAuthProvider.PROVIDER_ID }
     }
 
     private fun startMainActivity() {
-        val intent = Intent(this, MainActivity::class.java)
-        startActivity(intent)
+        startActivity(Intent(this, MainActivity::class.java))
         finish()
     }
 
     private fun startLoginActivity() {
-        val intent = Intent(this, LoginActivity::class.java)
-        startActivity(intent)
+        startActivity(Intent(this, LoginActivity::class.java))
         finish()
     }
 }

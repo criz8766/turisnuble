@@ -11,7 +11,6 @@ import androidx.recyclerview.widget.RecyclerView
 
 // Interfaz para manejar las acciones del fragmento de turismo en MainActivity
 
-
 class TurismoFragment : Fragment() {
 
     private var actionHandler: TurismoActionHandler? = null
@@ -36,13 +35,16 @@ class TurismoFragment : Fragment() {
         // FIX PARA FLUIDEZ: Indica que el tamaño de los elementos es fijo para optimizar el rendimiento.
         recyclerView.setHasFixedSize(true)
 
-        // Creamos el adaptador y le pasamos la acción a realizar al hacer clic
-        val adapter = TurismoAdapter(DatosTurismo.puntosTuristicos) { puntoSeleccionado ->
+        // --- CAMBIO REALIZADO ---
+        // Usamos la lista dinámica de TurismoDataManager en lugar de la lista estática antigua
+        val adapter = TurismoAdapter(TurismoDataManager.puntosTuristicos) { puntoSeleccionado ->
             // 1. Centrar mapa (Comportamiento existente)
             actionHandler?.centerMapOnPoint(puntoSeleccionado.latitud, puntoSeleccionado.longitud)
             // 2. Mostrar el nuevo fragmento de detalle
             actionHandler?.showTurismoDetail(puntoSeleccionado)
         }
+        // ------------------------
+
         recyclerView.adapter = adapter
 
         return view

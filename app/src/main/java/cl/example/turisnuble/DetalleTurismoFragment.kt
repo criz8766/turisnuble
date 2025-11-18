@@ -10,25 +10,24 @@ import android.widget.Button
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
-// --- INICIO LÓGICA DE FAVORITOS: IMPORTS ---
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+// --- IMPORTACIONES DE GLIDE AÑADIDAS ---
+import com.bumptech.glide.Glide
+import com.bumptech.glide.load.resource.bitmap.CenterCrop
+// ---------------------------------------
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.ktx.Firebase
-// --- FIN LÓGICA DE FAVORITOS: IMPORTS ---
 import java.io.Serializable
 
 class DetalleTurismoFragment : Fragment() {
 
     private var navigator: DetalleTurismoNavigator? = null
-
-    // --- INICIO LÓGICA DE FAVORITOS: VARIABLES ---
     private lateinit var auth: FirebaseAuth
-    private var esFavorito = false // Variable para rastrear el estado actual
-    // --- FIN LÓGICA DE FAVORITOS: VARIABLES ---
+    private var esFavorito = false
 
     companion object {
         private const val ARG_PUNTO_TURISTICO = "punto_turistico"
@@ -62,25 +61,30 @@ class DetalleTurismoFragment : Fragment() {
         val puntoTuristico = arguments?.getSerializable(ARG_PUNTO_TURISTICO) as? PuntoTuristico
             ?: return view
 
-        // --- INICIO LÓGICA DE FAVORITOS: INICIALIZACIÓN ---
         auth = Firebase.auth
         val currentUser = auth.currentUser
-        // --- FIN LÓGICA DE FAVORITOS: INICIALIZACIÓN ---
 
-        // Configurar botón de volver: sale de la pantalla de detalle
         view.findViewById<ImageButton>(R.id.back_button).setOnClickListener {
             navigator?.hideDetailFragment()
         }
 
-        // --- Encontrar el botón "Cómo Llegar" ---
         val btnComoLlegar: Button = view.findViewById(R.id.btn_como_llegar)
 
-        // 1. Mostrar la información del punto turístico
-        view.findViewById<ImageView>(R.id.imagen_punto_turistico).setImageResource(puntoTuristico.imagenId)
+        // --- CORRECCIÓN AQUÍ: USAR GLIDE PARA LA IMAGEN ---
+        val imageView = view.findViewById<ImageView>(R.id.imagen_punto_turistico)
+
+        Glide.with(this)
+            .load(puntoTuristico.imagenUrl) // Usamos la URL
+            .placeholder(R.drawable.ic_launcher_background)
+            .error(R.drawable.ic_close)
+            .transform(CenterCrop())
+            .into(imageView)
+        // --------------------------------------------------
+
         view.findViewById<TextView>(R.id.nombre_punto_turistico).text = puntoTuristico.nombre
         view.findViewById<TextView>(R.id.direccion_punto_turistico).text = puntoTuristico.direccion
 
-        // 2. Encontrar y mostrar los paraderos cercanos
+        // ... (Resto del código igual: paraderos cercanos, favoritos, etc.) ...
         val nearbyStops = GtfsDataManager.getNearbyStops(puntoTuristico.latitud, puntoTuristico.longitud, 3)
         val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_view_paraderos_cercanos)
         recyclerView.layoutManager = LinearLayoutManager(context)
@@ -99,22 +103,14 @@ class DetalleTurismoFragment : Fragment() {
             recyclerView.adapter = adapter
         }
 
-        // --- INICIO LÓGICA DE FAVORITOS: CÓDIGO PRINCIPAL ---
-
-        // Asumo que tienes un ImageButton en tu XML 'fragment_detalle_turismo.xml'
-        // con el id 'favorite_button'. Si no, cámbialo aquí.
-        // TAMBIÉN: Asegúrate de tener los íconos 'ic_star_filled' y 'ic_star_border' en 'res/drawable'.
         val favoriteButton: ImageButton = view.findViewById(R.id.favorite_button)
 
         if (currentUser == null) {
-            // Si es INVITADO, ocultamos el botón.
             favoriteButton.visibility = View.GONE
         } else {
-            // Si es USUARIO REGISTRADO, mostramos el botón y configuramos.
             favoriteButton.visibility = View.VISIBLE
             val userId = currentUser.uid
 
-            // Función interna para actualizar el ícono
             fun updateStarIcon(isFav: Boolean) {
                 if (isFav) {
                     favoriteButton.setImageResource(R.drawable.ic_star_filled)
@@ -124,36 +120,28 @@ class DetalleTurismoFragment : Fragment() {
                 esFavorito = isFav
             }
 
-            // Revisar el estado inicial del favorito en la base de datos
             FavoritesManager.checkFavoriteTurismoStatus(userId, puntoTuristico.id) { isFav ->
                 updateStarIcon(isFav)
             }
 
-            // Configurar el OnClickListener
             favoriteButton.setOnClickListener {
                 if (esFavorito) {
-                    // Ya es favorito -> Quitar
                     FavoritesManager.removeFavoriteTurismo(userId, puntoTuristico.id)
-                    updateStarIcon(false) // Ícono a borde
+                    updateStarIcon(false)
                     Toast.makeText(context, "Eliminado de favoritos", Toast.LENGTH_SHORT).show()
                 } else {
-                    // No es favorito -> Añadir
                     FavoritesManager.addFavoriteTurismo(userId, puntoTuristico)
-                    updateStarIcon(true) // Ícono a lleno
+                    updateStarIcon(true)
                     Toast.makeText(context, "Añadido a favoritos", Toast.LENGTH_SHORT).show()
                 }
             }
         }
-        // --- FIN LÓGICA DE FAVORITOS ---
 
-
-        // --- Lógica del botón "Cómo Llegar" (sin cambios) ---
         btnComoLlegar.setOnClickListener {
             Log.d("DetalleTurismo", "Botón 'Cómo Llegar' presionado para ${puntoTuristico.nombre}")
-            navigator?.onGetDirectionsClicked(puntoTuristico) // Llama a MainActivity
-            navigator?.hideDetailFragment() // Cierra este fragmento
+            navigator?.onGetDirectionsClicked(puntoTuristico)
+            navigator?.hideDetailFragment()
         }
-        // --- FIN AÑADIDO ---
 
         return view
     }
@@ -163,7 +151,6 @@ class DetalleTurismoFragment : Fragment() {
         navigator = null
     }
 
-    // Adaptador interno (sin cambios)
     private inner class ParaderosCercanosAdapter(
         private val stops: List<GtfsStop>,
         private val onItemClick: (GtfsStop) -> Unit
