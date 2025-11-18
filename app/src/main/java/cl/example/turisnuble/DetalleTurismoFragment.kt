@@ -84,6 +84,8 @@ class DetalleTurismoFragment : Fragment() {
         view.findViewById<TextView>(R.id.nombre_punto_turistico).text = puntoTuristico.nombre
         view.findViewById<TextView>(R.id.direccion_punto_turistico).text = puntoTuristico.direccion
 
+        view.findViewById<TextView>(R.id.categoria_punto_turistico).text = puntoTuristico.categoria.uppercase()
+
         // ... (Resto del código igual: paraderos cercanos, favoritos, etc.) ...
         val nearbyStops = GtfsDataManager.getNearbyStops(puntoTuristico.latitud, puntoTuristico.longitud, 3)
         val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_view_paraderos_cercanos)
