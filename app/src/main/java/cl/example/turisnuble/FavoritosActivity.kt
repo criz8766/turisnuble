@@ -1,7 +1,6 @@
-// app/src/main/java/cl/example/turisnuble/FavoritosActivity.kt
-
 package cl.example.turisnuble
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.ImageView
@@ -16,8 +15,6 @@ import com.google.firebase.ktx.Firebase
 
 class FavoritosActivity : AppCompatActivity() {
 
-    // --- INICIO DE MODIFICACIONES ---
-
     private lateinit var auth: FirebaseAuth
 
     // Referencias de la UI
@@ -27,8 +24,6 @@ class FavoritosActivity : AppCompatActivity() {
     private lateinit var btnBack: ImageView
 
     private lateinit var adapter: FavoritosAdapter
-
-    // --- FIN DE MODIFICACIONES ---
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,7 +42,7 @@ class FavoritosActivity : AppCompatActivity() {
             finish() // Cierra esta actividad y vuelve a MainActivity
         }
 
-        // Configurar RecyclerView (solo necesita el LayoutManager aquí)
+        // Configurar RecyclerView
         rvFavoritos.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
 
         // Cargar los favoritos
@@ -66,20 +61,44 @@ class FavoritosActivity : AppCompatActivity() {
         showLoadingState()
 
         FavoritesManager.getAllFavorites(userId) { favoritesList ->
-            // Asegurarse de que el código se ejecute en el hilo principal
+
+            // --- INICIO DE LA LÓGICA DE VALIDACIÓN ---
+            val listaValidada = favoritesList.filter { item ->
+                // CORRECCIÓN 1: Usar FavoritesManager.FavoriteType
+                if (item.type == FavoritesManager.FavoriteType.TURISMO) {
+                    val idNumerico = item.id.toIntOrNull()
+                    if (idNumerico != null) {
+                        TurismoDataManager.puntosTuristicos.any { it.id == idNumerico }
+                    } else {
+                        false
+                    }
+                } else {
+                    // Es Paradero
+                    GtfsDataManager.stops.containsKey(item.id)
+                }
+            }
+            // --- FIN DE LA LÓGICA DE VALIDACIÓN ---
+
             runOnUiThread {
-                if (favoritesList.isEmpty()) {
+                if (listaValidada.isEmpty()) {
                     showEmptyState()
                 } else {
                     showListState()
-                    // Inicializar el adapter con la lista y el manejador de clics
-                    adapter = FavoritosAdapter(favoritesList) { selectedItem ->
-                        // Acción simple al hacer clic (puedes expandir esto)
-                        Toast.makeText(this, "Clic en: ${selectedItem.name}", Toast.LENGTH_SHORT).show()
+                    adapter = FavoritosAdapter(listaValidada) { selectedItem ->
 
-                        // NOTA: Aquí podrías implementar una lógica más compleja, como
-                        // volver al mapa y centrarlo en el paradero/turismo,
-                        // pero por simplicidad, solo mostramos un Toast.
+                        // CORRECCIÓN 2: Usar FavoritesManager.FavoriteType
+                        if (selectedItem.type == FavoritesManager.FavoriteType.TURISMO) {
+                            val idNumerico = selectedItem.id.toIntOrNull()
+                            val puntoReal = TurismoDataManager.puntosTuristicos.find { it.id == idNumerico }
+
+                            if (puntoReal != null) {
+                                Toast.makeText(this, "Seleccionaste: ${puntoReal.nombre}", Toast.LENGTH_SHORT).show()
+                                // Aquí podrías lanzar el DetalleTurismoFragment si estuvieras en MainActivity
+                            }
+                        } else {
+                            // Es un paradero
+                            Toast.makeText(this, "Paradero: ${selectedItem.name}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                     rvFavoritos.adapter = adapter
                 }
