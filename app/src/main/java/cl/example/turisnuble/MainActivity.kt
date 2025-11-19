@@ -75,10 +75,6 @@ import android.widget.ImageView
 import androidx.appcompat.widget.PopupMenu
 import com.google.firebase.auth.FirebaseAuth
 
-// --- IMPORTACIONES PARA CLUSTERING ---
-import org.maplibre.android.style.sources.GeoJsonOptions
-import org.maplibre.android.style.layers.CircleLayer
-
 // --- ### USA SOLAMENTE ESTAS DOS LÍNEAS PARA EXPRESSIONS ### ---
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.expressions.Expression.*
@@ -150,6 +146,9 @@ class MainActivity : AppCompatActivity(),
     // --- VARIABLE NUEVA PARA ACCIONES DIFERIDAS (Intents desde Favoritos) ---
     private var pendingAction: (() -> Unit)? = null
 
+    // --- VARIABLE PARA ESTADO DEL BOTÓN DE UBICACIÓN (0: Centrar, 1: Reset) ---
+    private var locationButtonState = 0
+
     // --- apiService (sin cambios) ---
     private val apiService: GtfsApiService by lazy {
         Retrofit.Builder()
@@ -168,7 +167,8 @@ class MainActivity : AppCompatActivity(),
             } else {
                 Toast.makeText(this, "Permiso de ubicación denegado.", Toast.LENGTH_LONG).show()
                 centerMapOnPoint(-36.606, -72.102)
-                findAndShowStopsAroundPoint(-36.606, -72.102)
+                // findAndShowStopsAroundPoint(-36.606, -72.102) // Ya no filtramos por zona
+                showAllStops()
             }
         }
 
@@ -326,8 +326,19 @@ class MainActivity : AppCompatActivity(),
         selectedDirectionId = null
         currentDestinationStopId = null // Limpiamos el destino previo
         sharedViewModel.selectStop(stop.stopId)
+
+        // Aunque seleccionamos un paradero, el usuario pidió ver TODOS por defecto si no hay ruta.
+        // Pero aquí es "detalle de paradero", así que quizás quiera ver el contexto.
+        // Mantendremos findAndShowStopsAroundPoint SOLO para actualizar la lista del ViewPager,
+        // pero el mapa mostrará TODOS los paraderos si no hay ruta dibujada,
+        // o solo el seleccionado.
+        // Para cumplir "mostrar todos", llamamos a showAllStops() PERO marcando el seleccionado.
+
         findAndShowStopsAroundPoint(stop.location.latitude, stop.location.longitude)
         centerMapOnPoint(stop.location.latitude, stop.location.longitude)
+
+        showAllStops() // Muestra todos, pero showParaderosOnMap se encargará de pintar el seleccionado distinto.
+
         val stopLocation = Location("").apply {
             latitude = stop.location.latitude
             longitude = stop.location.longitude
@@ -335,7 +346,7 @@ class MainActivity : AppCompatActivity(),
         updateBusMarkers(stopLocation)
     }
 
-    // --- onCreate (Modificaciones para Intents) ---
+    // --- onCreate ---
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
@@ -362,10 +373,25 @@ class MainActivity : AppCompatActivity(),
         mapView.getMapAsync(this)
 
         locationFab = findViewById(R.id.location_fab)
+
+        // --- LÓGICA SIMPLIFICADA DEL BOTÓN DE UBICACIÓN ---
         locationFab.setOnClickListener {
-            sharedViewModel.setNearbyCalculationCenter(null)
-            sharedViewModel.selectStop(null)
-            clearRoutes(recenterToUser = true)
+            // Estados: 0=Centrar, 1=Reset Total
+            when (locationButtonState) {
+                0 -> { // 1. Centrar en usuario
+                    val locationComponent = map.locationComponent
+                    if (locationComponent.isLocationComponentActivated) {
+                        locationComponent.cameraMode = CameraMode.TRACKING
+                        locationComponent.renderMode = RenderMode.NORMAL
+                        locationButtonState = 1 // Siguiente click -> Reset
+                        Toast.makeText(this, "Centrado en tu ubicación", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                1 -> { // 2. Reset Total (Limpiar Rutas y Mostrar todos los paraderos)
+                    clearRoutes(recenterToUser = true) // Esto ya llama a showAllStops
+                    locationButtonState = 0 // Vuelve al inicio (Centrar)
+                }
+            }
         }
 
         // --- CONEXIÓN DEL BOTÓN DE ESTILO ---
@@ -400,7 +426,8 @@ class MainActivity : AppCompatActivity(),
 
         sharedViewModel.nearbyStops.observe(this) { nearbyStops ->
             if (selectedRouteId == null) {
-                showParaderosOnMap(nearbyStops ?: emptyList())
+                // --- CAMBIO: Si no hay ruta seleccionada, mostramos TODOS, no solo los cercanos ---
+                showAllStops()
             }
         }
 
@@ -429,7 +456,8 @@ class MainActivity : AppCompatActivity(),
                 val paraderosDeRuta = GtfsDataManager.getStopsForRoute(selectedRouteId!!, selectedDirectionId!!)
                 showParaderosOnMap(paraderosDeRuta)
             } else {
-                sharedViewModel.nearbyStops.value?.let { showParaderosOnMap(it) }
+                // Si no hay ruta, refrescamos "todos" para que se actualice la selección
+                showAllStops()
             }
         }
 
@@ -822,7 +850,8 @@ class MainActivity : AppCompatActivity(),
                 drawRoute(route, selectedDirectionId!!)
             }
         } else {
-            sharedViewModel.nearbyStops.value?.let { showParaderosOnMap(it) }
+            // --- CAMBIO: Mostramos TODOS los paraderos si no hay ruta seleccionada ---
+            showAllStops()
         }
 
         if (::bottomSheetBehavior.isInitialized && ::map.isInitialized) {
@@ -864,6 +893,7 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    // --- FUNCIÓN: Carga TODOS los iconos ---
     private fun loadMapIcons(style: Style) {
         try {
             style.addImage("paradero-icon", BitmapFactory.decodeResource(resources, R.drawable.ic_paradero))
@@ -885,7 +915,15 @@ class MainActivity : AppCompatActivity(),
 
             val originalBusBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_bus)
             val scaledBusBitmap = Bitmap.createScaledBitmap(originalBusBitmap, 60, 60, false)
-            style.addImage("bus-icon-default", scaledBusBitmap)
+            style.addImage("bus-icon-default-normal", scaledBusBitmap)
+
+            // --- IMPORTANTE: Cargar también el espejo del default ---
+            try {
+                val originalBusEspejo = BitmapFactory.decodeResource(resources, R.drawable.ic_bus_espejo)
+                val scaledBusEspejo = Bitmap.createScaledBitmap(originalBusEspejo, 60, 60, false)
+                style.addImage("bus-icon-default-espejo", scaledBusEspejo)
+            } catch (e: Exception) { Log.e("LoadIcons", "Error ic_bus_espejo", e) }
+
 
             val routeIcons = mapOf(
                 "467" to R.drawable.linea_2, "468" to R.drawable.linea_3, "469" to R.drawable.linea_4,
@@ -894,24 +932,35 @@ class MainActivity : AppCompatActivity(),
                 "473" to R.drawable.linea_10, "476" to R.drawable.linea_13, "474" to R.drawable.linea_13,
                 "475" to R.drawable.linea_13, "466" to R.drawable.linea_1
             )
+
+            // --- DEFINICIÓN QUE FALTABA ---
+            val routeIconsEspejo = mapOf(
+                "467" to R.drawable.linea_2_espejo, "468" to R.drawable.linea_3_espejo, "469" to R.drawable.linea_4_espejo,
+                "470" to R.drawable.linea_6_espejo, "471" to R.drawable.linea_7_espejo, "472" to R.drawable.linea_8_espejo,
+                "954" to R.drawable.linea_7_espejo, "478" to R.drawable.linea_14_espejo, "477" to R.drawable.linea_14_espejo,
+                "473" to R.drawable.linea_10_espejo, "476" to R.drawable.linea_13_espejo, "474" to R.drawable.linea_13_espejo,
+                "475" to R.drawable.linea_13_espejo, "466" to R.drawable.linea_1_espejo
+            )
+
+            // Cargar Iconos Normales
             routeIcons.forEach { (routeId, resourceId) ->
                 try {
                     val bmp = BitmapFactory.decodeResource(resources, resourceId)
                     val scaledBmp = Bitmap.createScaledBitmap(bmp, 60, 60, false)
-                    style.addImage("bus-icon-$routeId", scaledBmp)
+                    style.addImage("bus-icon-$routeId-normal", scaledBmp) // -normal suffix
                 } catch (e: Exception) { Log.e("LoadIcons", "Error icono ruta $routeId: ${e.message}") }
             }
-        } catch (e: Exception) {
-            Log.e("LoadIcons", "Error cargando íconos base", e)
-            if (style.getImage("bus-icon-default") == null) {
-                val defaultBmp = Bitmap.createBitmap(60, 60, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(defaultBmp)
-                val paint = Paint().apply { color = Color.BLUE }
-                canvas.drawCircle(30f, 30f, 25f, paint)
-                style.addImage("bus-icon-default", defaultBmp)
-                Log.w("LoadIcons", "Usando ícono de bus por defecto generado.")
+
+            // Cargar Iconos Espejo
+            routeIconsEspejo.forEach { (routeId, resourceId) ->
+                try {
+                    val bmp = BitmapFactory.decodeResource(resources, resourceId)
+                    val scaledBmp = Bitmap.createScaledBitmap(bmp, 60, 60, false)
+                    style.addImage("bus-icon-$routeId-espejo", scaledBmp) // -espejo suffix
+                } catch (e: Exception) { Log.e("LoadIcons", "Error icono espejo $routeId: ${e.message}") }
             }
-        }
+
+        } catch (e: Exception) { Log.e("LoadIcons", "Error cargando íconos base", e) }
     }
 
     // --- NUEVA FUNCIÓN: Configura la capa de turismo con zoom dinámico ---
@@ -939,52 +988,16 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    // --- FUNCIÓN RENOVADA: Configura el clustering de paraderos ---
+    // --- FUNCIÓN RENOVADA: VUELTA A LO SIMPLE (SIN CLUSTERING) ---
     private fun setupParaderoLayer(style: Style) {
-        // 1. FUENTE (SOURCE) CON CLUSTERING
+        // 1. FUENTE (SOURCE) - SIN CLUSTERING
         if (style.getSource("paradero-source") == null) {
-            val options = GeoJsonOptions()
-                .withCluster(true)
-                .withClusterRadius(50) // Radio de agrupación (en pixels)
-                .withClusterMaxZoom(14) // Al hacer zoom más allá de 14, se separan
-
-            // Iniciamos vacía, luego se llena con showParaderosOnMap
-            style.addSource(GeoJsonSource("paradero-source", FeatureCollection.fromFeatures(emptyList()), options))
+            style.addSource(GeoJsonSource("paradero-source"))
         }
 
-        // 2. CAPA DE CLUSTERS (Círculos con el número)
-        if (style.getLayer("paradero-clusters") == null) {
-            val clustersLayer = CircleLayer("paradero-clusters", "paradero-source").apply {
-                withFilter(has("point_count")) // Filtro: Solo mostrar si es un grupo
-                withProperties(
-                    PropertyFactory.circleColor(Color.parseColor("#2196F3")), // Azul Material
-                    PropertyFactory.circleRadius(20f),
-                    PropertyFactory.circleStrokeWidth(2f),
-                    PropertyFactory.circleStrokeColor(Color.WHITE)
-                )
-            }
-            style.addLayer(clustersLayer)
-        }
-
-        // 3. CAPA DE TEXTO (El número dentro del círculo)
-        if (style.getLayer("paradero-cluster-count") == null) {
-            val countLayer = SymbolLayer("paradero-cluster-count", "paradero-source").apply {
-                withFilter(has("point_count"))
-                withProperties(
-                    PropertyFactory.textField(Expression.toString(get("point_count_abbreviated"))),
-                    PropertyFactory.textSize(14f),
-                    PropertyFactory.textColor(Color.WHITE),
-                    PropertyFactory.textIgnorePlacement(true),
-                    PropertyFactory.textAllowOverlap(true)
-                )
-            }
-            style.addLayer(countLayer)
-        }
-
-        // 4. CAPA DE PARADEROS INDIVIDUALES (Tu capa original, ahora filtrada)
+        // 2. CAPA DE PARADEROS INDIVIDUALES
         if (style.getLayer("paradero-layer") == null) {
             val paraderoLayer = SymbolLayer("paradero-layer", "paradero-source").apply {
-                withFilter(not(has("point_count"))) // Filtro: Solo mostrar si NO es grupo
                 withProperties(
                     PropertyFactory.iconImage(
                         switchCase(
@@ -1008,7 +1021,7 @@ class MainActivity : AppCompatActivity(),
                         )
                     ),
                     // Mantenemos tu lógica original de opacidad para los paraderos individuales
-                    PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(12.99f, 0f), stop(13f, 1f))),
+                    PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(10.99f, 0f), stop(11f, 1f))),
                     PropertyFactory.textField(get("stop_id")),
                     PropertyFactory.textSize(10f),
                     PropertyFactory.textColor(Color.BLACK),
@@ -1178,7 +1191,8 @@ class MainActivity : AppCompatActivity(),
     private fun requestFreshLocation() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             centerMapOnPoint(-36.606, -72.102)
-            findAndShowStopsAroundPoint(-36.606, -72.102)
+            // findAndShowStopsAroundPoint(-36.606, -72.102) // Eliminado
+            showAllStops() // Agregado
             updateBusMarkers(null)
             return
         }
@@ -1190,13 +1204,15 @@ class MainActivity : AppCompatActivity(),
                     findAndShowStopsAroundPoint(location.latitude, location.longitude)
                 } else {
                     centerMapOnPoint(-36.606, -72.102)
-                    findAndShowStopsAroundPoint(-36.606, -72.102)
+                    // findAndShowStopsAroundPoint(-36.606, -72.102) // Eliminado
+                    showAllStops() // Agregado
                     updateBusMarkers(null)
                 }
             }
             .addOnFailureListener {
                 centerMapOnPoint(-36.606, -72.102)
-                findAndShowStopsAroundPoint(-36.606, -72.102)
+                // findAndShowStopsAroundPoint(-36.606, -72.102) // Eliminado
+                showAllStops() // Agregado
                 updateBusMarkers(null)
             }
     }
@@ -1212,7 +1228,7 @@ class MainActivity : AppCompatActivity(),
                 val feature = Feature.fromGeometry(point)
                 feature.addStringProperty("stop_id", stop.stopId)
 
-                // --- CAMBIO AQUÍ ---
+                // --- CORRECCIÓN AQUÍ ---
                 // Separamos las propiedades
                 val isSelected = (stop.stopId == currentSelectedStopId)
                 val isDestination = (stop.stopId == currentDestinationStopId)
@@ -1227,6 +1243,11 @@ class MainActivity : AppCompatActivity(),
                 mapStyle?.getSourceAs<GeoJsonSource>("paradero-source")?.setGeoJson(featureCollection)
             }
         }
+    }
+
+    // --- NUEVA FUNCIÓN AUXILIAR: Muestra TODOS los paraderos ---
+    private fun showAllStops() {
+        showParaderosOnMap(GtfsDataManager.stops.values.toList())
     }
 
     override fun drawRoute(route: GtfsRoute, directionId: Int) {
@@ -1308,6 +1329,9 @@ class MainActivity : AppCompatActivity(),
 
         updateBusMarkers()
         Toast.makeText(this, "Mostrando buses cercanos", Toast.LENGTH_SHORT).show()
+
+        // --- CAMBIO: Siempre mostrar todos los paraderos al limpiar rutas ---
+        showAllStops()
 
         if (recenterToUser) {
             requestFreshLocation()
