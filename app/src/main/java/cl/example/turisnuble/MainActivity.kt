@@ -114,7 +114,8 @@ class MainActivity : AppCompatActivity(),
     private var currentRouteLayerId: String? = null
     private var mapStyle: Style? = null
     private var currentSelectedStopId: String? = null
-    private val turismoMarkers = mutableListOf<Marker>()
+
+    // --- MODIFICADO: Eliminamos turismoMarkers porque ahora usamos una Capa (Layer) ---
     private var peekHeightInPixels: Int = 0
 
     private var currentInfoMarker: Marker? = null
@@ -755,6 +756,7 @@ class MainActivity : AppCompatActivity(),
         map.addOnMapClickListener { point ->
             val screenPoint = map.projection.toScreenLocation(point)
 
+            // 1. Bus click
             val busFeatures = map.queryRenderedFeatures(screenPoint, "bus-layer")
             if (busFeatures.isNotEmpty()) {
                 busFeatures[0]?.let {
@@ -763,11 +765,24 @@ class MainActivity : AppCompatActivity(),
                 return@addOnMapClickListener true
             }
 
+            // 2. Paradero click
             val paraderoFeatures = map.queryRenderedFeatures(screenPoint, "paradero-layer")
             if (paraderoFeatures.isNotEmpty()) {
                 val stopId = paraderoFeatures[0].getStringProperty("stop_id")
                 if (stopId != null) {
                     handleParaderoClick(stopId)
+                }
+                return@addOnMapClickListener true
+            }
+
+            // 3. Turismo click (NUEVO: Detectar click en la capa de turismo)
+            val turismoFeatures = map.queryRenderedFeatures(screenPoint, "turismo-layer")
+            if (turismoFeatures.isNotEmpty()) {
+                val id = turismoFeatures[0].getNumberProperty("id")?.toInt()
+                if (id != null) {
+                    TurismoDataManager.puntosTuristicos.find { it.id == id }?.let { punto ->
+                        showTurismoDetail(punto)
+                    }
                 }
                 return@addOnMapClickListener true
             }
@@ -785,7 +800,8 @@ class MainActivity : AppCompatActivity(),
         loadMapIcons(style)
         setupParaderoLayer(style)
         setupBusLayer(style)
-        addTurismoMarkers()
+        // --- CAMBIO: Usamos setupTurismoLayer en lugar de addTurismoMarkers
+        setupTurismoLayer(style)
 
         enableLocation(style)
         startBusDataFetching()
@@ -843,6 +859,14 @@ class MainActivity : AppCompatActivity(),
             style.addImage("paradero-icon", BitmapFactory.decodeResource(resources, R.drawable.ic_paradero))
             style.addImage("paradero-icon-selected", BitmapFactory.decodeResource(resources, R.drawable.ic_paradero_selected))
 
+            // --- CAMBIO: Cargamos el icono de turismo aquí ---
+            try {
+                val turismoBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_turismo)
+                val scaledTurismo = Bitmap.createScaledBitmap(turismoBitmap, 80, 80, false)
+                style.addImage("turismo-icon", scaledTurismo)
+            } catch (e: Exception) { Log.e("LoadIcons", "Error cargando ic_turismo", e) }
+            // ------------------------------------------------
+
             val originalBusBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_bus)
             val scaledBusBitmap = Bitmap.createScaledBitmap(originalBusBitmap, 60, 60, false)
             style.addImage("bus-icon-default", scaledBusBitmap)
@@ -861,7 +885,6 @@ class MainActivity : AppCompatActivity(),
                     style.addImage("bus-icon-$routeId", scaledBmp)
                 } catch (e: Exception) { Log.e("LoadIcons", "Error icono ruta $routeId: ${e.message}") }
             }
-            Log.d("LoadIcons", "Íconos cargados.")
         } catch (e: Exception) {
             Log.e("LoadIcons", "Error cargando íconos base", e)
             if (style.getImage("bus-icon-default") == null) {
@@ -872,6 +895,31 @@ class MainActivity : AppCompatActivity(),
                 style.addImage("bus-icon-default", defaultBmp)
                 Log.w("LoadIcons", "Usando ícono de bus por defecto generado.")
             }
+        }
+    }
+
+    // --- NUEVA FUNCIÓN: Configura la capa de turismo con zoom dinámico ---
+    private fun setupTurismoLayer(style: Style) {
+        if (style.getSource("turismo-source") == null) {
+            val features = TurismoDataManager.puntosTuristicos.map { punto ->
+                Feature.fromGeometry(Point.fromLngLat(punto.longitud, punto.latitud)).apply {
+                    addNumberProperty("id", punto.id) // Guardamos ID para el click
+                }
+            }
+            style.addSource(GeoJsonSource("turismo-source", FeatureCollection.fromFeatures(features)))
+        }
+
+        if (style.getLayer("turismo-layer") == null) {
+            val layer = SymbolLayer("turismo-layer", "turismo-source").apply {
+                withProperties(
+                    PropertyFactory.iconImage("turismo-icon"),
+                    PropertyFactory.iconAllowOverlap(true),
+                    PropertyFactory.iconIgnorePlacement(true),
+                    // ZOOM: Se desvanece antes de 12.5, aparece totalmente en 13.5
+                    PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(12.5f, 0f), stop(13.5f, 1f)))
+                )
+            }
+            style.addLayer(layer)
         }
     }
 
@@ -1190,37 +1238,7 @@ class MainActivity : AppCompatActivity(),
         currentRouteSourceId = null
     }
 
-    private fun addTurismoMarkers() {
-        val iconFactory = IconFactory.getInstance(this@MainActivity)
-        val originalBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_turismo)
-        val scaledBitmap = Bitmap.createScaledBitmap(originalBitmap, 80, 80, false)
-        val icon = iconFactory.fromBitmap(scaledBitmap)
-
-        turismoMarkers.forEach { it.remove() }
-        turismoMarkers.clear()
-
-        TurismoDataManager.puntosTuristicos.forEach { punto ->
-            val marker = map.addMarker(
-                MarkerOptions().position(LatLng(punto.latitud, punto.longitud))
-                    .title(punto.nombre)
-                    .snippet(punto.id.toString())
-                    .icon(icon)
-            )
-            turismoMarkers.add(marker)
-        }
-
-        map.setOnMarkerClickListener { marker ->
-            if (turismoMarkers.contains(marker)) {
-                marker.snippet?.toIntOrNull()?.let { puntoId ->
-                    TurismoDataManager.puntosTuristicos.find { it.id == puntoId }?.let { punto ->
-                        showTurismoDetail(punto)
-                        return@setOnMarkerClickListener true
-                    }
-                }
-            }
-            return@setOnMarkerClickListener false
-        }
-    }
+    // --- ELIMINADO: private fun addTurismoMarkers() { ... } ---
 
     private fun startBusDataFetching() {
         lifecycleScope.launch {
