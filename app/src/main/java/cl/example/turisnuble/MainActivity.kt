@@ -75,6 +75,10 @@ import android.widget.ImageView
 import androidx.appcompat.widget.PopupMenu
 import com.google.firebase.auth.FirebaseAuth
 
+// --- IMPORTACIONES PARA CLUSTERING ---
+import org.maplibre.android.style.sources.GeoJsonOptions
+import org.maplibre.android.style.layers.CircleLayer
+
 // --- ### USA SOLAMENTE ESTAS DOS LÍNEAS PARA EXPRESSIONS ### ---
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.expressions.Expression.*
@@ -111,11 +115,16 @@ class MainActivity : AppCompatActivity(),
     private var selectedDirectionId: Int? = null
     private var lastFeedMessage: GtfsRealtime.FeedMessage? = null
     private var currentRouteSourceId: String? = null
+
     private var currentRouteLayerId: String? = null
+    private var currentRouteCasingLayerId: String? = null // Borde de ruta
+
     private var mapStyle: Style? = null
     private var currentSelectedStopId: String? = null
 
-    // --- MODIFICADO: Eliminamos turismoMarkers porque ahora usamos una Capa (Layer) ---
+    // Variable para recordar el ID del destino (Punto B)
+    private var currentDestinationStopId: String? = null
+
     private var peekHeightInPixels: Int = 0
 
     private var currentInfoMarker: Marker? = null
@@ -310,11 +319,12 @@ class MainActivity : AppCompatActivity(),
             }
     }
 
-    // --- displayStopAndNearbyStops (sin cambios) ---
+    // --- displayStopAndNearbyStops ---
     override fun displayStopAndNearbyStops(stop: GtfsStop) {
         clearDrawnElements()
         selectedRouteId = null
         selectedDirectionId = null
+        currentDestinationStopId = null // Limpiamos el destino previo
         sharedViewModel.selectStop(stop.stopId)
         findAndShowStopsAroundPoint(stop.location.latitude, stop.location.longitude)
         centerMapOnPoint(stop.location.latitude, stop.location.longitude)
@@ -859,6 +869,12 @@ class MainActivity : AppCompatActivity(),
             style.addImage("paradero-icon", BitmapFactory.decodeResource(resources, R.drawable.ic_paradero))
             style.addImage("paradero-icon-selected", BitmapFactory.decodeResource(resources, R.drawable.ic_paradero_selected))
 
+            // --- AGREGADO: Cargamos el icono de destino (finish) ---
+            try {
+                style.addImage("paradero-icon-finish", BitmapFactory.decodeResource(resources, R.drawable.ic_paradero_finish))
+            } catch (e: Exception) { Log.e("LoadIcons", "Error cargando ic_paradero_finish", e) }
+            // -----------------------------------------------------
+
             // --- CAMBIO: Cargamos el icono de turismo aquí ---
             try {
                 val turismoBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_turismo)
@@ -920,6 +936,87 @@ class MainActivity : AppCompatActivity(),
                 )
             }
             style.addLayer(layer)
+        }
+    }
+
+    // --- FUNCIÓN RENOVADA: Configura el clustering de paraderos ---
+    private fun setupParaderoLayer(style: Style) {
+        // 1. FUENTE (SOURCE) CON CLUSTERING
+        if (style.getSource("paradero-source") == null) {
+            val options = GeoJsonOptions()
+                .withCluster(true)
+                .withClusterRadius(50) // Radio de agrupación (en pixels)
+                .withClusterMaxZoom(14) // Al hacer zoom más allá de 14, se separan
+
+            // Iniciamos vacía, luego se llena con showParaderosOnMap
+            style.addSource(GeoJsonSource("paradero-source", FeatureCollection.fromFeatures(emptyList()), options))
+        }
+
+        // 2. CAPA DE CLUSTERS (Círculos con el número)
+        if (style.getLayer("paradero-clusters") == null) {
+            val clustersLayer = CircleLayer("paradero-clusters", "paradero-source").apply {
+                withFilter(has("point_count")) // Filtro: Solo mostrar si es un grupo
+                withProperties(
+                    PropertyFactory.circleColor(Color.parseColor("#2196F3")), // Azul Material
+                    PropertyFactory.circleRadius(20f),
+                    PropertyFactory.circleStrokeWidth(2f),
+                    PropertyFactory.circleStrokeColor(Color.WHITE)
+                )
+            }
+            style.addLayer(clustersLayer)
+        }
+
+        // 3. CAPA DE TEXTO (El número dentro del círculo)
+        if (style.getLayer("paradero-cluster-count") == null) {
+            val countLayer = SymbolLayer("paradero-cluster-count", "paradero-source").apply {
+                withFilter(has("point_count"))
+                withProperties(
+                    PropertyFactory.textField(Expression.toString(get("point_count_abbreviated"))),
+                    PropertyFactory.textSize(14f),
+                    PropertyFactory.textColor(Color.WHITE),
+                    PropertyFactory.textIgnorePlacement(true),
+                    PropertyFactory.textAllowOverlap(true)
+                )
+            }
+            style.addLayer(countLayer)
+        }
+
+        // 4. CAPA DE PARADEROS INDIVIDUALES (Tu capa original, ahora filtrada)
+        if (style.getLayer("paradero-layer") == null) {
+            val paraderoLayer = SymbolLayer("paradero-layer", "paradero-source").apply {
+                withFilter(not(has("point_count"))) // Filtro: Solo mostrar si NO es grupo
+                withProperties(
+                    PropertyFactory.iconImage(
+                        switchCase(
+                            // --- LÓGICA ACTUALIZADA ---
+                            // 1. Si es DESTINO (finish) -> Icono finish
+                            eq(get("isDestination"), literal(true)), literal("paradero-icon-finish"),
+                            // 2. Si es SELECCIONADO (origen) -> Icono seleccionado
+                            eq(get("selected"), literal(true)), literal("paradero-icon-selected"),
+                            // 3. Defecto -> Icono normal
+                            literal("paradero-icon")
+                        )
+                    ),
+                    PropertyFactory.iconAllowOverlap(true),
+                    PropertyFactory.iconIgnorePlacement(false),
+                    PropertyFactory.iconSize(
+                        switchCase(
+                            // Agrandamos si es destino o seleccionado
+                            eq(get("isDestination"), literal(true)), literal(0.07f),
+                            eq(get("selected"), literal(true)), literal(0.07f),
+                            literal(0.05f)
+                        )
+                    ),
+                    // Mantenemos tu lógica original de opacidad para los paraderos individuales
+                    PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(12.99f, 0f), stop(13f, 1f))),
+                    PropertyFactory.textField(get("stop_id")),
+                    PropertyFactory.textSize(10f),
+                    PropertyFactory.textColor(Color.BLACK),
+                    PropertyFactory.textOffset(arrayOf(0f, 1.5f)),
+                    PropertyFactory.textOpacity(interpolate(linear(), zoom(), stop(15.49f, 0f), stop(15.5f, 1f)))
+                )
+            }
+            style.addLayer(paraderoLayer)
         }
     }
 
@@ -1078,39 +1175,6 @@ class MainActivity : AppCompatActivity(),
         style.addLayer(busLayer)
     }
 
-    private fun setupParaderoLayer(style: Style) {
-        if (style.getSource("paradero-source") == null) {
-            style.addSource(GeoJsonSource("paradero-source"))
-        }
-        if (style.getLayer("paradero-layer") == null) {
-            val paraderoLayer = SymbolLayer("paradero-layer", "paradero-source").apply {
-                withProperties(
-                    PropertyFactory.iconImage(
-                        switchCase(
-                            eq(get("selected"), literal(true)), literal("paradero-icon-selected"),
-                            literal("paradero-icon")
-                        )
-                    ),
-                    PropertyFactory.iconAllowOverlap(true),
-                    PropertyFactory.iconIgnorePlacement(false),
-                    PropertyFactory.iconSize(
-                        switchCase(
-                            eq(get("selected"), literal(true)), literal(0.07f),
-                            literal(0.05f)
-                        )
-                    ),
-                    PropertyFactory.iconOpacity(interpolate(linear(), zoom(), stop(12.99f, 0f), stop(13f, 1f))),
-                    PropertyFactory.textField(get("stop_id")),
-                    PropertyFactory.textSize(10f),
-                    PropertyFactory.textColor(Color.BLACK),
-                    PropertyFactory.textOffset(arrayOf(0f, 1.5f)),
-                    PropertyFactory.textOpacity(interpolate(linear(), zoom(), stop(15.49f, 0f), stop(15.5f, 1f)))
-                )
-            }
-            style.addLayer(paraderoLayer)
-        }
-    }
-
     private fun requestFreshLocation() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             centerMapOnPoint(-36.606, -72.102)
@@ -1137,6 +1201,7 @@ class MainActivity : AppCompatActivity(),
             }
     }
 
+    // --- FUNCIÓN MODIFICADA: Ahora marca origen y destino por separado ---
     private fun showParaderosOnMap(paraderos: List<GtfsStop>) {
         if (!::map.isInitialized || mapStyle?.getSource("paradero-source") == null) {
             return
@@ -1146,7 +1211,15 @@ class MainActivity : AppCompatActivity(),
                 val point = Point.fromLngLat(stop.location.longitude, stop.location.latitude)
                 val feature = Feature.fromGeometry(point)
                 feature.addStringProperty("stop_id", stop.stopId)
-                feature.addBooleanProperty("selected", stop.stopId == currentSelectedStopId)
+
+                // --- CAMBIO AQUÍ ---
+                // Separamos las propiedades
+                val isSelected = (stop.stopId == currentSelectedStopId)
+                val isDestination = (stop.stopId == currentDestinationStopId)
+
+                feature.addBooleanProperty("selected", isSelected)
+                feature.addBooleanProperty("isDestination", isDestination)
+
                 feature
             }
             val featureCollection = FeatureCollection.fromFeatures(paraderoFeatures)
@@ -1161,6 +1234,8 @@ class MainActivity : AppCompatActivity(),
         clearDrawnElements()
         selectedRouteId = route.routeId
         selectedDirectionId = directionId
+        currentDestinationStopId = null // Limpiar destino al dibujar ruta completa
+
         val style = mapStyle ?: return
 
         val trip = GtfsDataManager.trips.values.find { it.routeId == route.routeId && it.directionId == directionId }
@@ -1180,6 +1255,24 @@ class MainActivity : AppCompatActivity(),
         }
         currentRouteSourceId = sourceId
 
+        // --- 1. CAPA DEL BORDE (CASING) ---
+        val casingLayerId = "route-layer-casing-${route.routeId}-$directionId"
+        if (style.getLayer(casingLayerId) == null) {
+            val casingLayer = LineLayer(casingLayerId, sourceId).apply {
+                withProperties(
+                    PropertyFactory.lineColor(Color.WHITE), // Borde blanco
+                    PropertyFactory.lineWidth(9f), // Más ancho que la ruta normal (5f)
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
+                )
+            }
+            // Insertar debajo de capas de iconos
+            val belowLayer = style.layers.find { it.id == "bus-layer" || it.id == "paradero-layer" || it.id == "paradero-clusters" }?.id
+            if (belowLayer != null) { style.addLayerBelow(casingLayer, belowLayer)} else { style.addLayer(casingLayer)}
+        }
+        currentRouteCasingLayerId = casingLayerId
+
+        // --- 2. CAPA DE LA RUTA (INNER) ---
         val layerId = "route-layer-${route.routeId}-$directionId"
         if (style.getLayer(layerId) == null) {
             val routeLayer = LineLayer(layerId, sourceId).apply {
@@ -1190,12 +1283,11 @@ class MainActivity : AppCompatActivity(),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
                 )
             }
-
-            val belowLayer = style.layers.find { it.id == "bus-layer" || it.id == "paradero-layer" }?.id
-            if (belowLayer != null) { style.addLayerBelow(routeLayer, belowLayer)} else { style.addLayer(routeLayer)}
+            // Insertar ENCIMA del borde
+            style.addLayerAbove(routeLayer, casingLayerId)
         }
-
         currentRouteLayerId = layerId
+
         val paraderosDeRuta = GtfsDataManager.getStopsForRoute(route.routeId, directionId)
         showParaderosOnMap(paraderosDeRuta)
 
@@ -1210,6 +1302,7 @@ class MainActivity : AppCompatActivity(),
         clearDrawnElements()
         selectedRouteId = null
         selectedDirectionId = null
+        currentDestinationStopId = null // Resetear destino
         sharedViewModel.selectStop(null)
         sharedViewModel.setNearbyCalculationCenter(null)
 
@@ -1232,13 +1325,15 @@ class MainActivity : AppCompatActivity(),
     private fun clearDrawnElements() {
         mapStyle?.let { style ->
             currentRouteLayerId?.let { if (style.getLayer(it) != null) style.removeLayer(it) }
+            // --- Limpiar capa de borde ---
+            currentRouteCasingLayerId?.let { if (style.getLayer(it) != null) style.removeLayer(it) }
+
             currentRouteSourceId?.let { if (style.getSource(it) != null) style.removeSource(it) }
         }
         currentRouteLayerId = null
+        currentRouteCasingLayerId = null
         currentRouteSourceId = null
     }
-
-    // --- ELIMINADO: private fun addTurismoMarkers() { ... } ---
 
     private fun startBusDataFetching() {
         lifecycleScope.launch {
@@ -1413,6 +1508,8 @@ class MainActivity : AppCompatActivity(),
         clearDrawnElements()
         selectedRouteId = route.routeId
         selectedDirectionId = directionId
+        currentDestinationStopId = stopB.stopId // --- GUARDAMOS EL DESTINO ---
+
         val style = mapStyle ?: return
         Log.d("DrawRouteSegment", "Dibujando segmento A->B para ${route.shortName}")
 
@@ -1445,9 +1542,26 @@ class MainActivity : AppCompatActivity(),
         }
         currentRouteSourceId = sourceId
 
+        // --- 1. CAPA DE BORDE (CASING) PARA EL SEGMENTO ---
+        val casingLayerId = "route-layer-segment-casing"
+        if (style.getLayer(casingLayerId) == null) {
+            val casingLayer = LineLayer(casingLayerId, sourceId).apply {
+                withProperties(
+                    PropertyFactory.lineColor(Color.WHITE),
+                    PropertyFactory.lineWidth(10f), // Un poco más grueso para el segmento
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                    PropertyFactory.lineOpacity(0.8f)
+                )
+            }
+            val belowLayer = style.layers.find { it.id == "bus-layer" || it.id == "paradero-layer" || it.id == "paradero-clusters" }?.id
+            if (belowLayer != null) { style.addLayerBelow(casingLayer, belowLayer) } else { style.addLayer(casingLayer) }
+        }
+        currentRouteCasingLayerId = casingLayerId
+
+        // --- 2. CAPA NORMAL PARA EL SEGMENTO ---
         val layerId = "route-layer-segment"
         if (style.getLayer(layerId) == null) {
-            currentRouteLayerId = layerId
             val routeLayer = LineLayer(layerId, sourceId).apply {
                 withProperties(
                     PropertyFactory.lineColor(Color.parseColor(if (route.color.startsWith("#")) route.color else "#${route.color}")),
@@ -1457,9 +1571,9 @@ class MainActivity : AppCompatActivity(),
                     PropertyFactory.lineOpacity(0.8f)
                 )
             }
-            val belowLayer = style.layers.find { it.id == "bus-layer" || it.id == "paradero-layer" }?.id
-            if (belowLayer != null) { style.addLayerBelow(routeLayer, belowLayer) } else { style.addLayer(routeLayer) }
+            style.addLayerAbove(routeLayer, casingLayerId)
         }
+        currentRouteLayerId = layerId
 
         showParaderosOnMap(listOf(stopA, stopB))
         Log.d("DrawRouteSegment", "Mostrando paraderos A y B.")

@@ -75,7 +75,8 @@
         app:layout_anchor="@id/search_card"
         app:layout_anchorGravity="bottom"
         tools:visibility="visible"
-        tools:listitem="@layout/item_search_result" />
+        tools:listitem="@layout/item_search_result"
+        android:layoutAnimation="@anim/layout_fall_down"/>
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/map_style_fab"
         android:layout_width="wrap_content"

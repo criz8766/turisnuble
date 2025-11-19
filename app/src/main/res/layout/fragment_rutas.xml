@@ -17,7 +17,8 @@
         android:paddingBottom="8dp"
         android:scrollbars="vertical"
         android:contentDescription="Lista de rutas de transporte"
-        tools:listitem="@layout/item_ruta" />
+        tools:listitem="@layout/item_ruta"
+        android:layoutAnimation="@anim/layout_fall_down"/>
 
     <!-- Loading state -->
     <ProgressBar

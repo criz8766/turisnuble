@@ -43,7 +43,8 @@
             android:visibility="gone"
             tools:visibility="visible"
             tools:listitem="@layout/item_favorito"
-            app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+            app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+            android:layoutAnimation="@anim/layout_fall_down"/>
 
         <ProgressBar
             android:id="@+id/pb_favoritos_loading"
