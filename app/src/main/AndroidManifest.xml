@@ -41,6 +41,10 @@
         <activity
             android:name="cl.example.turisnuble.FavoritosActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".SugerenciasActivity"
+            android:exported="false" />
     </application>
 
 

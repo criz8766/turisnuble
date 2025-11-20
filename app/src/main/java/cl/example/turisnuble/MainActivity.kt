@@ -470,6 +470,7 @@ class MainActivity : AppCompatActivity(),
             val currentUser = auth.currentUser
             val menu = popup.menu
 
+            // Mostrar/ocultar opciones según si hay usuario logueado
             if (currentUser == null) {
                 menu.findItem(R.id.menu_perfil).isVisible = false
                 menu.findItem(R.id.menu_favoritos).isVisible = false
@@ -491,7 +492,8 @@ class MainActivity : AppCompatActivity(),
                         true
                     }
                     R.id.menu_sugerencias -> {
-                        Toast.makeText(this, "Ir a Sugerencias (pendiente)", Toast.LENGTH_SHORT).show()
+                        // --- CAMBIO AQUÍ: Iniciar la nueva actividad ---
+                        startActivity(Intent(this, SugerenciasActivity::class.java))
                         true
                     }
                     R.id.menu_logout -> {

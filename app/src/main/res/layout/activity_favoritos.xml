@@ -1,45 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/bg_splash_gradient"
     tools:context=".FavoritosActivity">
 
-    <RelativeLayout
-        android:id="@+id/toolbar_favoritos"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:background="?attr/colorPrimary">
+        android:layout_height="?attr/actionBarSize">
 
         <ImageView
             android:id="@+id/btn_favoritos_back"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:src="@drawable/ic_close"
-            android:layout_centerVertical="true"
-            android:layout_marginStart="16dp"
-            android:padding="12dp"
-            app:tint="@android:color/white"/>
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:src="?attr/homeAsUpIndicator"
+            app:tint="@android:color/white"
+            android:padding="16dp"
+            android:layout_gravity="start|center_vertical"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Volver" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Mis Favoritos"
-            android:textColor="@android:color/white"
+            android:textColor="#0D47A1"
             android:textSize="20sp"
-            android:layout_centerInParent="true" />
-    </RelativeLayout>
+            android:textStyle="bold"
+            android:layout_gravity="center" />
+
+    </FrameLayout>
 
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_below="@id/toolbar_favoritos">
+        android:layout_height="0dp"
+        android:layout_weight="1">
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rv_favoritos"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:padding="8dp"
+            android:clipToPadding="false"
             android:visibility="gone"
             tools:visibility="visible"
             tools:listitem="@layout/item_favorito"
@@ -51,6 +56,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
+            android:indeterminateTint="#1976D2"
             android:visibility="gone"
             tools:visibility="visible" />
 
@@ -60,9 +66,11 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:text="No tienes favoritos guardados."
-            android:textSize="18sp"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
             android:visibility="gone"
             tools:visibility="gone" />
 
     </FrameLayout>
-</RelativeLayout>
+
+</LinearLayout>
