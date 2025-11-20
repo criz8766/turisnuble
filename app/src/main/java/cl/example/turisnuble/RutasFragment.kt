@@ -8,8 +8,10 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -21,8 +23,6 @@ import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.ktx.Firebase
 
-
-// Ya no necesitamos el iconResId aquí
 data class DisplayRouteInfo(
     val route: GtfsRoute,
     val directionId: Int,
@@ -33,8 +33,16 @@ class RutasFragment : Fragment() {
 
     private var routeDrawer: RouteDrawer? = null
     private val sharedViewModel: SharedViewModel by activityViewModels()
-    private lateinit var adapter: RutasAdapter
-    private var allDisplayRoutes: List<DisplayRouteInfo> = emptyList()
+
+    private lateinit var recyclerView: RecyclerView
+    private lateinit var btnVolver: LinearLayout
+    private lateinit var txtTitulo: TextView
+
+    // Listas generales
+    private var urbanRoutes: List<DisplayRouteInfo> = emptyList() // Micros de Chillán
+    private var ruralRoutes: List<DisplayRouteInfo> = emptyList() // Buses Rurales
+
+    private var isShowingList = false
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -50,57 +58,95 @@ class RutasFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View? {
         val view = inflater.inflate(R.layout.fragment_rutas, container, false)
-        val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_view_rutas)
+
+        recyclerView = view.findViewById(R.id.recycler_view_rutas)
+        btnVolver = view.findViewById(R.id.btn_volver_categorias)
+        txtTitulo = view.findViewById(R.id.txt_titulo_categoria_actual)
+
         recyclerView.layoutManager = LinearLayoutManager(context)
+        recyclerView.setHasFixedSize(true)
 
-        prepareAllRoutes()
+        prepareClassifiedRoutes()
 
-        adapter = RutasAdapter(emptyList(), emptyList(),
-            onItemClick = { displayRoute ->
-                routeDrawer?.drawRoute(displayRoute.route, displayRoute.directionId)
-                (activity as? MainActivity)?.showRouteDetail(displayRoute.route.routeId, displayRoute.directionId) // Corregido: .route.id
-            },
-            onClearClick = {
-                sharedViewModel.clearRouteFilter()
-                routeDrawer?.clearRoutes()
+        btnVolver.setOnClickListener {
+            showCategories()
+        }
+
+        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (isShowingList && sharedViewModel.routeFilter.value == null) {
+                    showCategories()
+                } else {
+                    isEnabled = false
+                    requireActivity().onBackPressed()
+                }
             }
-        )
-        recyclerView.adapter = adapter
+        })
 
         sharedViewModel.routeFilter.observe(viewLifecycleOwner) { filter ->
             if (filter == null) {
-                updateAdapterWithAllRoutes()
+                if (!isShowingList) showCategories()
             } else {
-                updateAdapterWithFilteredRoutes(filter)
+                showFilteredList(filter)
             }
         }
+
+        if (sharedViewModel.routeFilter.value == null) {
+            showCategories()
+        }
+
         return view
     }
 
-    override fun onResume() {
-        super.onResume()
-        if (sharedViewModel.routeFilter.value == null) {
-            updateAdapterWithAllRoutes()
-        } else {
-            sharedViewModel.routeFilter.value?.let { updateAdapterWithFilteredRoutes(it) }
-        }
-    }
-
-    private fun prepareAllRoutes() {
-        val routes = mutableListOf<DisplayRouteInfo>()
+    private fun prepareClassifiedRoutes() {
+        val allRoutes = mutableListOf<DisplayRouteInfo>()
         GtfsDataManager.trips.values
             .distinctBy { it.routeId to it.directionId }
             .forEach { trip ->
                 GtfsDataManager.routes[trip.routeId]?.let { route ->
                     val directionName = if (trip.directionId == 0) "Ida" else "Vuelta"
-                    routes.add(DisplayRouteInfo(route, trip.directionId, directionName))
+                    allRoutes.add(DisplayRouteInfo(route, trip.directionId, directionName))
                 }
             }
-        allDisplayRoutes = routes
+
+        // 1. Asignamos TODO lo actual a "Micros de Chillán"
+        urbanRoutes = allRoutes
+
+        // 2. "Buses Rurales" queda vacío esperando el nuevo JSON
+        ruralRoutes = emptyList()
     }
 
-    private fun updateAdapterWithAllRoutes() {
-        val mainRoutes = allDisplayRoutes.filter {
+    private fun showCategories() {
+        isShowingList = false
+        btnVolver.visibility = View.GONE
+
+        val categories = listOf(
+            RouteCategory(
+                name = "Micros de Chillán",
+                count = urbanRoutes.size,
+                imageResId = R.drawable.buses_chillan,
+                routes = urbanRoutes
+            ),
+            RouteCategory(
+                name = "Buses Rurales",
+                count = ruralRoutes.size,
+                imageResId = R.drawable.buses_rurales_chillan,
+                routes = ruralRoutes
+            )
+        )
+
+        recyclerView.adapter = RutaCategoriaAdapter(categories) { selectedCategory ->
+            showRouteList(selectedCategory.name, selectedCategory.routes)
+        }
+    }
+
+    private fun showRouteList(title: String, routes: List<DisplayRouteInfo>) {
+        isShowingList = true
+        btnVolver.visibility = View.VISIBLE
+        txtTitulo.text = title
+
+        // Recuperamos la lógica de división (Main vs Variantes)
+        val mainRoutes = routes.filter {
             val shortName = it.route.shortName
             shortName.all { char -> char.isDigit() } || shortName == "13A" || shortName == "13B"
         }.sortedWith(
@@ -109,20 +155,44 @@ class RutasFragment : Fragment() {
                 { it.route.shortName }
             )
         )
-        val variantRoutes = allDisplayRoutes.filterNot { mainRoutes.contains(it) }
+
+        val variantRoutes = routes.filterNot { mainRoutes.contains(it) }
             .sortedBy { it.route.shortName }
 
-        adapter.updateData(mainRoutes, variantRoutes)
+        // --- CAMBIO: Eliminado onClearClick ---
+        val adapter = RutasAdapter(
+            mainRoutes = mainRoutes,
+            variantRoutes = variantRoutes,
+            onItemClick = { displayRoute ->
+                routeDrawer?.drawRoute(displayRoute.route, displayRoute.directionId)
+                (activity as? MainActivity)?.showRouteDetail(displayRoute.route.routeId, displayRoute.directionId)
+            }
+        )
+        recyclerView.adapter = adapter
     }
 
-    private fun updateAdapterWithFilteredRoutes(filteredRoutes: List<DisplayRouteInfo>) {
+    private fun showFilteredList(filteredRoutes: List<DisplayRouteInfo>) {
+        isShowingList = true
+        btnVolver.visibility = View.VISIBLE
+        txtTitulo.text = "Resultados"
+
         val sortedFilter = filteredRoutes.sortedWith(
             compareBy(
                 { it.route.shortName.filter { c -> c.isDigit() }.toIntOrNull() ?: Int.MAX_VALUE },
                 { it.route.shortName }
             )
         )
-        adapter.updateData(sortedFilter, emptyList())
+
+        // --- CAMBIO: Eliminado onClearClick ---
+        val adapter = RutasAdapter(
+            mainRoutes = sortedFilter,
+            variantRoutes = emptyList(),
+            onItemClick = { displayRoute ->
+                routeDrawer?.drawRoute(displayRoute.route, displayRoute.directionId)
+                (activity as? MainActivity)?.showRouteDetail(displayRoute.route.routeId, displayRoute.directionId)
+            }
+        )
+        recyclerView.adapter = adapter
     }
 
     override fun onDetach() {
@@ -131,27 +201,24 @@ class RutasFragment : Fragment() {
     }
 }
 
+// --- ADAPTADOR MODIFICADO (Sin Header) ---
 class RutasAdapter(
     private var mainRoutes: List<DisplayRouteInfo>,
     private var variantRoutes: List<DisplayRouteInfo>,
-    private val onItemClick: (DisplayRouteInfo) -> Unit,
-    private val onClearClick: () -> Unit
+    private val onItemClick: (DisplayRouteInfo) -> Unit
+    // --- CAMBIO: Eliminado onClearClick del constructor ---
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
-    // --- INICIO LÓGICA DE FAVORITOS (ADAPTER) ---
     private val auth: FirebaseAuth = Firebase.auth
     private val currentUser = auth.currentUser
     private var favoriteRutaIds = setOf<String>()
 
     init {
-        // Si el usuario está logueado, carga sus rutas favoritas
         currentUser?.uid?.let { userId ->
-            // Usamos la función de FavoritesManager que obtiene la REFERENCIA
             FavoritesManager.getRutaFavRef(userId, "").addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
-                    // Actualizamos el set de IDs favoritos
                     favoriteRutaIds = snapshot.children.mapNotNull { it.key }.toSet()
-                    notifyDataSetChanged() // Recarga la lista para mostrar estrellas
+                    notifyDataSetChanged()
                 }
                 override fun onCancelled(error: DatabaseError) {
                     Log.w("RutasAdapter", "Error al cargar rutas favoritas", error.toException())
@@ -159,10 +226,9 @@ class RutasAdapter(
             })
         }
     }
-    // --- FIN LÓGICA DE FAVORITOS (ADAPTER) ---
 
     companion object {
-        private const val VIEW_TYPE_HEADER = 0
+        // --- CAMBIO: Eliminado VIEW_TYPE_HEADER ---
         private const val VIEW_TYPE_MAIN_ROUTE = 1
         private const val VIEW_TYPE_SUBHEADER = 2
         private const val VIEW_TYPE_VARIANT_ROUTE = 3
@@ -174,14 +240,12 @@ class RutasAdapter(
         notifyDataSetChanged()
     }
 
-    class HeaderViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val clearButton: TextView = view.findViewById(R.id.clear_selection_text)
-    }
+    // --- CAMBIO: Eliminado HeaderViewHolder ---
+
     class RutaViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val iconoRuta: ImageView = view.findViewById(R.id.icono_ruta)
         val nombreLinea: TextView = view.findViewById(R.id.nombre_linea)
         val nombreRecorrido: TextView = view.findViewById(R.id.nombre_recorrido)
-        // --- AÑADIDO: El botón de favorito ---
         val favoriteButton: ImageButton = view.findViewById(R.id.btn_favorite_paradero)
     }
     class SubheaderViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -189,17 +253,17 @@ class RutasAdapter(
     }
 
     override fun getItemViewType(position: Int): Int {
+        // --- CAMBIO: Lógica ajustada para empezar en 0 ---
         return when {
-            position == 0 -> VIEW_TYPE_HEADER
-            position <= mainRoutes.size -> VIEW_TYPE_MAIN_ROUTE
-            position == mainRoutes.size + 1 && variantRoutes.isNotEmpty() -> VIEW_TYPE_SUBHEADER
+            position < mainRoutes.size -> VIEW_TYPE_MAIN_ROUTE
+            position == mainRoutes.size && variantRoutes.isNotEmpty() -> VIEW_TYPE_SUBHEADER
             else -> VIEW_TYPE_VARIANT_ROUTE
         }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         return when (viewType) {
-            VIEW_TYPE_HEADER -> HeaderViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_clear_selection, parent, false))
+            // --- CAMBIO: Eliminado caso HEADER ---
             VIEW_TYPE_MAIN_ROUTE -> RutaViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_ruta, parent, false))
             VIEW_TYPE_SUBHEADER -> SubheaderViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_section_header, parent, false))
             VIEW_TYPE_VARIANT_ROUTE -> RutaViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_ruta, parent, false))
@@ -209,20 +273,20 @@ class RutasAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (holder) {
-            is HeaderViewHolder -> {
-                holder.clearButton.setOnClickListener { onClearClick() }
-            }
+            // --- CAMBIO: Eliminado caso HeaderViewHolder ---
             is SubheaderViewHolder -> {
                 holder.headerText.text = "Variantes"
             }
             is RutaViewHolder -> {
-                val displayRoute = if (position <= mainRoutes.size) {
-                    mainRoutes[position - 1]
+                // --- CAMBIO: Ajuste de índices (ya no restamos 1 al principio) ---
+                val displayRoute = if (position < mainRoutes.size) {
+                    mainRoutes[position]
                 } else {
-                    variantRoutes[position - mainRoutes.size - 2]
+                    // Restamos el tamaño de mainRoutes y 1 por el subheader
+                    variantRoutes[position - mainRoutes.size - 1]
                 }
 
-                val route = displayRoute.route // El objeto GtfsRoute
+                val route = displayRoute.route
 
                 val shortName = route.shortName
                 if (shortName == "13A" || shortName == "13B") {
@@ -233,11 +297,10 @@ class RutasAdapter(
 
                 holder.nombreRecorrido.text = "${route.longName} (${displayRoute.directionName})"
 
-                // Lógica de íconos (sin cambios)
-                val iconRes = when (route.routeId) { // Corregido: route.id
+                val iconRes = when (route.routeId) {
                     "468" -> R.drawable.linea_3
                     "469" -> R.drawable.linea_4
-                    "467" -> R.drawable.linea_2 //linea 2
+                    "467" -> R.drawable.linea_2
                     "470" -> R.drawable.linea_6
                     "471" -> R.drawable.linea_7
                     "472" -> R.drawable.linea_8
@@ -257,44 +320,36 @@ class RutasAdapter(
                     onItemClick(displayRoute)
                 }
 
-                // --- INICIO LÓGICA DE FAVORITOS (RUTAS) ---
                 if (currentUser == null) {
-                    // Si es INVITADO, ocultar botón
                     holder.favoriteButton.visibility = View.GONE
                 } else {
-                    // Si es USUARIO, mostrar y configurar
                     holder.favoriteButton.visibility = View.VISIBLE
                     val userId = currentUser.uid
                     val isFavorite = favoriteRutaIds.contains(route.routeId)
 
-                    // 1. Poner el ícono correcto
                     if (isFavorite) {
                         holder.favoriteButton.setImageResource(R.drawable.ic_star_filled)
                     } else {
                         holder.favoriteButton.setImageResource(R.drawable.ic_star_border)
                     }
 
-                    // 2. Configurar el click
                     holder.favoriteButton.setOnClickListener {
                         if (favoriteRutaIds.contains(route.routeId)) {
-                            // Ya es favorito -> Quitar
                             FavoritesManager.removeFavoriteRuta(userId, route.routeId)
                             Toast.makeText(holder.itemView.context, "Ruta eliminada de favoritos", Toast.LENGTH_SHORT).show()
                         } else {
-                            // No es favorito -> Añadir
                             FavoritesManager.addFavoriteRuta(userId, route)
                             Toast.makeText(holder.itemView.context, "Ruta añadida a favoritos", Toast.LENGTH_SHORT).show()
                         }
-                        // El listener de la BD actualiza el ícono
                     }
                 }
-                // --- FIN LÓGICA DE FAVORITOS (RUTAS) ---
             }
         }
     }
 
     override fun getItemCount(): Int {
-        var count = 1 + mainRoutes.size
+        // --- CAMBIO: Eliminado el +1 del header ---
+        var count = mainRoutes.size
         if (variantRoutes.isNotEmpty()) {
             count += 1 + variantRoutes.size
         }
