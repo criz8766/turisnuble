@@ -12,7 +12,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="16dp"
-        android:background="?attr/colorAccent"
+        android:background="?attr/colorPrimary"
         android:gravity="center_vertical"
         android:visibility="gone"
         tools:visibility="visible">
