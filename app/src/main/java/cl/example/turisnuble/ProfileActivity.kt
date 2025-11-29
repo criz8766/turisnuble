@@ -17,6 +17,8 @@ import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.ktx.Firebase
 
+import android.graphics.Color
+
 class ProfileActivity : AppCompatActivity() {
 
     private lateinit var auth: FirebaseAuth
@@ -32,6 +34,8 @@ class ProfileActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_profile)
+
+        window.navigationBarColor = Color.WHITE
 
         auth = Firebase.auth
         currentUser = auth.currentUser

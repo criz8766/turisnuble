@@ -1,13 +1,14 @@
 package cl.example.turisnuble
 
-import android.content.Context // <-- CAMBIO: Importado Context
+import android.content.Context
 import android.util.Log
 import org.maplibre.android.geometry.LatLng
-import kotlin.math.pow
 import android.location.Location
 import org.json.JSONArray
-import org.json.JSONObject
-import java.io.File // <-- CAMBIO: Importado File para leer de almacenamiento interno
+import java.io.File
+import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // Clases de datos (sin cambios)
 data class GtfsRoute(
@@ -40,6 +41,7 @@ data class GtfsStopTime(
 object GtfsDataManager {
 
     private var isDataLoaded = false
+    private var isRuralDataLoaded = false
 
     val routes = mutableMapOf<String, GtfsRoute>()
     val stops = mutableMapOf<String, GtfsStop>()
@@ -48,17 +50,16 @@ object GtfsDataManager {
     private val stopTimesByTrip = mutableMapOf<String, MutableList<GtfsStopTime>>()
     private val tripsByTripId = mutableMapOf<String, GtfsTrip>()
 
-    // --- FUNCIÓN MODIFICADA PARA LEER DESDE ALMACENAMIENTO INTERNO ---
-    fun loadData(context: Context) { // <-- CAMBIO: Recibe Context
+    // --- Carga de datos locales (Micros) ---
+    fun loadData(context: Context) {
         if (isDataLoaded) return
-        Log.d("GtfsDataManager", "Iniciando carga de datos GTFS desde almacenamiento interno...")
+        Log.d("GtfsDataManager", "Cargando datos GTFS locales...")
 
         try {
-            val filesDir = context.filesDir // <-- CAMBIO: Usamos el directorio de archivos internos
+            val filesDir = context.filesDir
 
-            // Carga de routes.json
-            val routesJsonString = File(filesDir, "routes.json").bufferedReader().readText() // <-- CAMBIO
-            val routesArray = JSONArray(routesJsonString)
+            val routesJson = File(filesDir, "routes.json").bufferedReader().readText()
+            val routesArray = JSONArray(routesJson)
             for (i in 0 until routesArray.length()) {
                 val obj = routesArray.getJSONObject(i)
                 val route = GtfsRoute(
@@ -69,11 +70,9 @@ object GtfsDataManager {
                 )
                 routes[route.routeId] = route
             }
-            Log.d("GtfsDataManager", "Cargadas ${routes.size} rutas.")
 
-            // Carga de stops.json
-            val stopsJsonString = File(filesDir, "stops.json").bufferedReader().readText() // <-- CAMBIO
-            val stopsArray = JSONArray(stopsJsonString)
+            val stopsJson = File(filesDir, "stops.json").bufferedReader().readText()
+            val stopsArray = JSONArray(stopsJson)
             for (i in 0 until stopsArray.length()) {
                 val obj = stopsArray.getJSONObject(i)
                 val stop = GtfsStop(
@@ -83,22 +82,18 @@ object GtfsDataManager {
                 )
                 stops[stop.stopId] = stop
             }
-            Log.d("GtfsDataManager", "Cargados ${stops.size} paraderos.")
 
-            // Carga de shapes.json
-            val shapesJsonString = File(filesDir, "shapes.json").bufferedReader().readText() // <-- CAMBIO
-            val shapesArray = JSONArray(shapesJsonString)
+            val shapesJson = File(filesDir, "shapes.json").bufferedReader().readText()
+            val shapesArray = JSONArray(shapesJson)
             for (i in 0 until shapesArray.length()) {
                 val obj = shapesArray.getJSONObject(i)
                 val shapeId = obj.getString("shape_id")
                 val point = LatLng(obj.getDouble("shape_pt_lat"), obj.getDouble("shape_pt_lon"))
                 shapes.getOrPut(shapeId) { mutableListOf() }.add(point)
             }
-            Log.d("GtfsDataManager", "Cargados ${shapes.size} trazados.")
 
-            // Carga de trips.json
-            val tripsJsonString = File(filesDir, "trips.json").bufferedReader().readText() // <-- CAMBIO
-            val tripsArray = JSONArray(tripsJsonString)
+            val tripsJson = File(filesDir, "trips.json").bufferedReader().readText()
+            val tripsArray = JSONArray(tripsJson)
             for (i in 0 until tripsArray.length()) {
                 val obj = tripsArray.getJSONObject(i)
                 val trip = GtfsTrip(
@@ -109,16 +104,12 @@ object GtfsDataManager {
                     shapeId = obj.getString("shape_id")
                 )
                 val tripKey = "${trip.routeId}_${trip.directionId}"
-                if (!trips.containsKey(tripKey)) {
-                    trips[tripKey] = trip
-                }
+                if (!trips.containsKey(tripKey)) trips[tripKey] = trip
                 tripsByTripId[trip.tripId] = trip
             }
-            Log.d("GtfsDataManager", "Cargados ${trips.size} viajes únicos.")
 
-            // Carga de stop_times.json
-            val stopTimesJsonString = File(filesDir, "stopTimes.json").bufferedReader().readText() // <-- CAMBIO
-            val stopTimesArray = JSONArray(stopTimesJsonString)
+            val stopTimesJson = File(filesDir, "stopTimes.json").bufferedReader().readText()
+            val stopTimesArray = JSONArray(stopTimesJson)
             for (i in 0 until stopTimesArray.length()) {
                 val obj = stopTimesArray.getJSONObject(i)
                 val stopTime = GtfsStopTime(
@@ -128,62 +119,91 @@ object GtfsDataManager {
                 )
                 stopTimesByTrip.getOrPut(stopTime.tripId) { mutableListOf() }.add(stopTime)
             }
-            Log.d("GtfsDataManager", "Cargadas ${stopTimesByTrip.size} secuencias de paraderos.")
 
             isDataLoaded = true
-            Log.d("GtfsDataManager", "Carga de datos GTFS (JSON, interno) completada.")
         } catch (e: Exception) {
-            Log.e("GtfsDataManager", "Error al cargar los datos GTFS desde almacenamiento interno.", e)
-            isDataLoaded = false
+            Log.e("GtfsDataManager", "Error carga local", e)
         }
     }
 
-    // --- EL RESTO DE FUNCIONES (getStopsForRoute, distanceToInMeters, getNearbyStops, getRoutesForStop) ---
-    // --- NO REQUIEREN NINGÚN CAMBIO ---
+    // --- Carga de datos rurales (GitHub) ---
+    suspend fun loadRuralData() {
+        if (isRuralDataLoaded) return
+        withContext(Dispatchers.IO) {
+            try {
+                val url = URL("https://criz8766.github.io/datosgtfschillan/ruralshaperoute.json")
+                val jsonString = url.readText()
+                val jsonArray = JSONArray(jsonString)
+                val tempShapes = mutableMapOf<String, MutableList<LatLng>>()
 
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    val shapeId = obj.getString("shape_id")
+                    val lat = obj.getDouble("shape_pt_lat")
+                    val lon = obj.getDouble("shape_pt_lon")
+                    tempShapes.getOrPut(shapeId) { mutableListOf() }.add(LatLng(lat, lon))
+                }
+
+                withContext(Dispatchers.Main) {
+                    tempShapes.forEach { (shapeId, points) ->
+                        shapes[shapeId] = points
+
+                        // ID único para evitar conflictos
+                        val ruralRouteId = "rural_${shapeId.replace(" ", "_").lowercase()}"
+                        val nombreFormateado = shapeId.replace("-", " - ").capitalize()
+
+                        // Creamos la ruta con shortName="Rural" para identificarla
+                        val newRoute = GtfsRoute(
+                            routeId = ruralRouteId,
+                            shortName = "Rural",
+                            longName = nombreFormateado,
+                            color = "#4CAF50"
+                        )
+                        routes[ruralRouteId] = newRoute
+
+                        val newTrip = GtfsTrip(
+                            routeId = ruralRouteId,
+                            serviceId = "rural_service",
+                            tripId = "trip_$ruralRouteId",
+                            directionId = 0, // Solo Ida por defecto
+                            shapeId = shapeId
+                        )
+                        trips["${ruralRouteId}_0"] = newTrip
+                        tripsByTripId[newTrip.tripId] = newTrip
+                    }
+                    isRuralDataLoaded = true
+                }
+            } catch (e: Exception) {
+                Log.e("GtfsDataManager", "Error carga rural: ${e.message}")
+            }
+        }
+    }
+
+    // Funciones auxiliares (sin cambios)
     fun getStopsForRoute(routeId: String, directionId: Int): List<GtfsStop> {
         val tripKey = "${routeId}_${directionId}"
-        val representativeTripId = trips[tripKey]?.tripId ?: return emptyList()
-        val stopTimes = stopTimesByTrip[representativeTripId] ?: return emptyList()
-        val sortedStopTimes = stopTimes.sortedBy { it.stopSequence }
-        return sortedStopTimes.mapNotNull { stopTime -> stops[stopTime.stopId] }
+        val tripId = trips[tripKey]?.tripId ?: return emptyList()
+        val stopTimes = stopTimesByTrip[tripId] ?: return emptyList()
+        return stopTimes.sortedBy { it.stopSequence }.mapNotNull { stops[it.stopId] }
     }
 
     private fun distanceToInMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
-        val results = FloatArray(1)
-        Location.distanceBetween(lat1, lon1, lat2, lon2, results)
-        return results[0]
+        val res = FloatArray(1)
+        Location.distanceBetween(lat1, lon1, lat2, lon2, res)
+        return res[0]
     }
 
     fun getNearbyStops(lat: Double, lon: Double, count: Int = 3): List<GtfsStop> {
         if (stops.isEmpty()) return emptyList()
-
-        return stops.values
-            .map { stop ->
-                val distance = distanceToInMeters(lat, lon, stop.location.latitude, stop.location.longitude)
-                Pair(stop, distance)
-            }
-            .sortedBy { it.second }
-            .take(count)
-            .map { it.first }
+        return stops.values.map { it to distanceToInMeters(lat, lon, it.location.latitude, it.location.longitude) }
+            .sortedBy { it.second }.take(count).map { it.first }
     }
 
     fun getRoutesForStop(stopId: String): List<DisplayRouteInfo> {
-        val uniqueRoutes = mutableSetOf<Pair<String, Int>>()
-
-        stopTimesByTrip.values.flatten().forEach { stopTime ->
-            if (stopTime.stopId == stopId) {
-                tripsByTripId[stopTime.tripId]?.let { trip ->
-                    uniqueRoutes.add(Pair(trip.routeId, trip.directionId))
-                }
-            }
-        }
-
-        return uniqueRoutes.mapNotNull { (routeId, directionId) ->
-            routes[routeId]?.let { route ->
-                val directionName = if (directionId == 0) "Ida" else "Vuelta"
-                DisplayRouteInfo(route, directionId, directionName)
-            }
-        }
+        val result = mutableSetOf<Pair<String, Int>>()
+        stopTimesByTrip.values.flatten().forEach { if (it.stopId == stopId) tripsByTripId[it.tripId]?.let { t -> result.add(t.routeId to t.directionId) } }
+        return result.mapNotNull { (rId, dId) -> routes[rId]?.let { DisplayRouteInfo(it, dId, if (dId == 0) "Ida" else "Vuelta") } }
     }
+
+    private fun String.capitalize() = replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 }

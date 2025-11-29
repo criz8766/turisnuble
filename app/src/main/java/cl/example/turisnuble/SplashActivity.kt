@@ -23,6 +23,8 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
+import android.graphics.Color
+
 @SuppressLint("CustomSplashScreen")
 class SplashActivity : AppCompatActivity() {
 
@@ -51,6 +53,8 @@ class SplashActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_splash)
+
+        window.navigationBarColor = Color.WHITE
 
         supportActionBar?.hide()
 

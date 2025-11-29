@@ -11,6 +11,8 @@ import com.google.android.material.textfield.TextInputEditText
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 
+import android.graphics.Color
+
 class SugerenciasActivity : AppCompatActivity() {
 
     private lateinit var etSugerencia: TextInputEditText
@@ -22,6 +24,8 @@ class SugerenciasActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_sugerencias)
+
+        window.navigationBarColor = Color.WHITE
 
         auth = FirebaseAuth.getInstance()
 

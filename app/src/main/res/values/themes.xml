@@ -6,19 +6,15 @@
         <item name="colorPrimaryContainer">@color/primary_light</item>
         <item name="colorOnPrimary">@color/on_primary</item>
         <item name="colorOnPrimaryContainer">@color/primary_dark</item>
-
         <item name="colorSecondary">@color/secondary</item>
         <item name="colorSecondaryContainer">@color/secondary_light</item>
         <item name="colorOnSecondary">@color/on_secondary</item>
-
         <item name="colorSurface">@color/surface</item>
         <item name="colorSurfaceVariant">@color/surface_variant</item>
         <item name="colorOnSurface">@color/on_surface</item>
         <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
-
         <item name="android:colorBackground">@color/background</item>
         <item name="colorOnBackground">@color/on_background</item>
-
         <item name="colorError">@color/error</item>
         <item name="colorOnError">@color/on_error</item>
 
@@ -26,29 +22,26 @@
         <item name="materialButtonStyle">@style/Widget.App.Button</item>
         <item name="tabStyle">@style/Widget.App.TabLayout</item>
 
-        <item name="android:statusBarColor">@android:color/transparent</item> <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
 
-        <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
-        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item> <item name="android:navigationBarColor">@android:color/white</item>
+        <item name="android:windowLightNavigationBar">true</item> <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 
     <style name="Widget.App.CardView" parent="Widget.Material3.CardView.Elevated">
         <item name="cardCornerRadius">@dimen/card_corner_radius</item>
         <item name="cardElevation">@dimen/card_elevation</item>
     </style>
-
     <style name="Widget.App.Button" parent="Widget.Material3.Button">
         <item name="cornerRadius">8dp</item>
         <item name="android:textAllCaps">false</item>
     </style>
-
     <style name="Widget.App.TabLayout" parent="Widget.Material3.TabLayout">
         <item name="tabIndicatorColor">?attr/colorPrimary</item>
         <item name="tabIndicatorHeight">3dp</item>
         <item name="tabTextAppearance">@style/TextAppearance.App.Tab</item>
     </style>
-
     <style name="TextAppearance.App.Tab" parent="TextAppearance.Material3.TitleSmall">
         <item name="android:textStyle">bold</item>
         <item name="textAllCaps">false</item>

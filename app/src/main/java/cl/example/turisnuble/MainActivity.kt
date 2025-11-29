@@ -351,6 +351,9 @@ class MainActivity : AppCompatActivity(),
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
         setContentView(R.layout.activity_main)
+        // 3. Hacer la barra de navegación (abajo) blanca sólida
+        window.navigationBarColor = Color.WHITE
+        // -----------------------------
 
         // --- INICIALIZACIÓN DE AUTH ---
         auth = FirebaseAuth.getInstance()
