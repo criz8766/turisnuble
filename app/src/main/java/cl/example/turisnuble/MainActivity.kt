@@ -351,19 +351,23 @@ class MainActivity : AppCompatActivity(),
         super.onCreate(savedInstanceState)
         MapLibre.getInstance(this)
         setContentView(R.layout.activity_main)
+
         // 3. Hacer la barra de navegación (abajo) blanca sólida
         window.navigationBarColor = Color.WHITE
-        // -----------------------------
 
         // --- INICIALIZACIÓN DE AUTH ---
         auth = FirebaseAuth.getInstance()
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
+        // Configuración inicial del BottomSheet
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
+
+        // Altura inicial: 40% de la pantalla
         val screenHeight = resources.displayMetrics.heightPixels
         bottomSheetBehavior.maxHeight = (screenHeight * 0.40).toInt()
+
         peekHeightInPixels = (46 * resources.displayMetrics.density).toInt()
         bottomSheetBehavior.peekHeight = peekHeightInPixels
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
@@ -391,7 +395,7 @@ class MainActivity : AppCompatActivity(),
                     }
                 }
                 1 -> { // 2. Reset Total (Limpiar Rutas y Mostrar todos los paraderos)
-                    clearRoutes(recenterToUser = true) // Esto ya llama a showAllStops
+                    clearRoutes(recenterToUser = true)
                     locationButtonState = 0 // Vuelve al inicio (Centrar)
                 }
             }
@@ -429,16 +433,25 @@ class MainActivity : AppCompatActivity(),
 
         sharedViewModel.nearbyStops.observe(this) { nearbyStops ->
             if (selectedRouteId == null) {
-                // --- CAMBIO: Si no hay ruta seleccionada, mostramos TODOS, no solo los cercanos ---
                 showAllStops()
             }
         }
 
         val bottomSheetContent = findViewById<View>(R.id.bottom_sheet_content)
 
+        // --- LISTENER DE NAVEGACIÓN (AQUÍ ESTÁ LA CORRECCIÓN) ---
         supportFragmentManager.addOnBackStackChangedListener {
             if (supportFragmentManager.backStackEntryCount == 0) {
+                // ESTAMOS EN LA PANTALLA PRINCIPAL:
+
+                // 1. Restauramos la altura al 40% original
+                val currentScreenHeight = resources.displayMetrics.heightPixels
+                bottomSheetBehavior.maxHeight = (currentScreenHeight * 0.40).toInt()
+
+                // 2. Mostramos el contenido principal del menú
                 bottomSheetContent.visibility = View.VISIBLE
+
+                // 3. Reseteamos lógica de paraderos cercanos
                 sharedViewModel.setNearbyCalculationCenter(null)
                 if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                     fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
@@ -449,6 +462,7 @@ class MainActivity : AppCompatActivity(),
                     findAndShowStopsAroundPoint(-36.606, -72.102)
                 }
             } else {
+                // ESTAMOS EN UN DETALLE (Turismo, Ruta, etc):
                 bottomSheetContent.visibility = View.GONE
             }
         }
@@ -459,7 +473,6 @@ class MainActivity : AppCompatActivity(),
                 val paraderosDeRuta = GtfsDataManager.getStopsForRoute(selectedRouteId!!, selectedDirectionId!!)
                 showParaderosOnMap(paraderosDeRuta)
             } else {
-                // Si no hay ruta, refrescamos "todos" para que se actualice la selección
                 showAllStops()
             }
         }
@@ -473,7 +486,6 @@ class MainActivity : AppCompatActivity(),
             val currentUser = auth.currentUser
             val menu = popup.menu
 
-            // Mostrar/ocultar opciones según si hay usuario logueado
             if (currentUser == null) {
                 menu.findItem(R.id.menu_perfil).isVisible = false
                 menu.findItem(R.id.menu_favoritos).isVisible = false
@@ -495,7 +507,6 @@ class MainActivity : AppCompatActivity(),
                         true
                     }
                     R.id.menu_sugerencias -> {
-                        // --- CAMBIO AQUÍ: Iniciar la nueva actividad ---
                         startActivity(Intent(this, SugerenciasActivity::class.java))
                         true
                     }
@@ -509,9 +520,8 @@ class MainActivity : AppCompatActivity(),
             popup.show()
         }
 
-        // --- PROCESAR INTENT INICIAL (Si la app se abre desde Favoritos) ---
+        // --- PROCESAR INTENT INICIAL ---
         processIntent(intent)
-
     } // --- FIN DE onCreate ---
 
     // --- NUEVO MÉTODO: Se llama cuando la app ya está abierta y recibe un nuevo Intent ---
@@ -1085,12 +1095,20 @@ class MainActivity : AppCompatActivity(),
 
     private fun doShowTurismoDetail(punto: PuntoTuristico) {
         clearInfoMarker()
+
+        // --- INICIO CAMBIO: Ajustar altura dinámica ---
+        // Calculamos el 48% de la pantalla (un poco menos de la mitad)
+        val screenHeight = resources.displayMetrics.heightPixels
+        bottomSheetBehavior.maxHeight = (screenHeight * 0.55).toInt()
+        // --- FIN CAMBIO ---
+
         val fragment = DetalleTurismoFragment.newInstance(punto)
         findViewById<View>(R.id.bottom_sheet_content).visibility = View.GONE
         supportFragmentManager.beginTransaction()
             .replace(R.id.bottom_sheet, fragment)
             .addToBackStack("turismo_detail")
             .commitAllowingStateLoss()
+
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
     }
 
