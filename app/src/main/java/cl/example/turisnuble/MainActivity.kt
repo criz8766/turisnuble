@@ -155,6 +155,8 @@ class MainActivity : AppCompatActivity(),
 
     // --- VARIABLE PARA ESTADO DEL BOTÓN DE UBICACIÓN (0: Centrar, 1: Reset) ---
     private var locationButtonState = 0
+
+    private var preventRouteZoom = false
     // ----------------------------------------------
 
     // --- apiService (sin cambios) ---
@@ -652,7 +654,6 @@ class MainActivity : AppCompatActivity(),
         val clickLon = geometry.longitude()
 
         // --- 1. BUSCAR EL BUS REAL EN LOS DATOS CRUDOS ---
-        // Ignoramos las properties del feature y buscamos en la lista oficial
         val feed = lastFeedMessage
         var foundBusId: String? = null
         var foundRouteId: String? = null
@@ -660,7 +661,7 @@ class MainActivity : AppCompatActivity(),
         var foundLicensePlate: String? = null
 
         if (feed != null) {
-            // Buscamos el bus que esté "casi en el mismo lugar" del clic
+            // Buscamos el bus que esté "casi en el mismo lugar" del clic (radio pequeño)
             val closestEntity = feed.entityList
                 .filter { it.hasVehicle() && it.vehicle.hasPosition() }
                 .minByOrNull { entity ->
@@ -670,7 +671,7 @@ class MainActivity : AppCompatActivity(),
                     results[0] // Distancia en metros
                 }
 
-            // Si encontramos uno a menos de 50 metros, ¡ese es!
+            // Si encontramos uno a menos de 50 metros aprox, ¡ese es!
             if (closestEntity != null) {
                 val v = closestEntity.vehicle
 
@@ -694,8 +695,13 @@ class MainActivity : AppCompatActivity(),
 
         // 3. Dibujar ruta y globo
         val route = GtfsDataManager.routes[foundRouteId] ?: return
+
+        // Si la ruta del bus no es la que ya está dibujada, la dibujamos
         if (selectedRouteId != foundRouteId) {
+            // ¡TRUCO! Activamos el bloqueo de zoom para que drawRoute NO aleje la cámara
+            preventRouteZoom = true
             drawRoute(route, foundDirectionId ?: 0)
+            preventRouteZoom = false // Desactivamos el bloqueo
         }
 
         val directionStr = if (foundDirectionId == 0) "Ida" else "Vuelta"
@@ -705,15 +711,22 @@ class MainActivity : AppCompatActivity(),
         val iconFactory = IconFactory.getInstance(this@MainActivity)
         val transparentIcon = iconFactory.fromBitmap(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888))
 
+        // Borramos marcador anterior si existía
         currentInfoMarker?.let { map.removeMarker(it) }
 
+        // Creamos el nuevo marcador invisible en la posición exacta del clic
         currentInfoMarker = map.addMarker(MarkerOptions()
-            .position(LatLng(clickLat, clickLon)) // Ponemos el globo donde estaba el bus al hacer clic
+            .position(LatLng(clickLat, clickLon))
             .title(infoTitle)
             .snippet(infoSnippet)
             .icon(transparentIcon))
 
+        // Abrimos el globo
         map.selectMarker(currentInfoMarker!!)
+
+        // --- 4. CENTRAR CÁMARA EN EL BUS (ZOOM IN) ---
+        // Aquí forzamos al mapa a acercarse al bus que acabamos de tocar
+        map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(clickLat, clickLon), 16.0), 1000)
     }
 
     private fun showCustomNotification(message: String) {
@@ -1437,7 +1450,7 @@ class MainActivity : AppCompatActivity(),
             val casingLayer = LineLayer(casingLayerId, sourceId).apply {
                 withProperties(
                     PropertyFactory.lineColor(Color.WHITE), // Borde blanco
-                    PropertyFactory.lineWidth(9f), // Más ancho que la ruta normal (5f)
+                    PropertyFactory.lineWidth(9f),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
                 )
@@ -1469,7 +1482,12 @@ class MainActivity : AppCompatActivity(),
 
         val bounds = LatLngBounds.Builder().includes(routePoints).build()
 
-        map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100), 1500)
+        // --- CAMBIO CLAVE AQUÍ ---
+        // Solo hacemos zoom para ver TODA la ruta si NO estamos en modo "prevenir zoom"
+        if (!preventRouteZoom) {
+            map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100), 1500)
+        }
+
         updateBusMarkers()
     }
 
@@ -1574,7 +1592,11 @@ class MainActivity : AppCompatActivity(),
 
         lifecycleScope.launch(Dispatchers.Default) {
             val busFeatures = mutableListOf<Feature>()
-            var newMarkerPosition: LatLng? = null
+
+            // Variables temporales para el bus que estamos siguiendo
+            var trackedBusNewPosition: LatLng? = null
+            var trackedBusNewTitle: String? = null
+            var trackedBusNewSnippet: String? = null
 
             for (entity in feed.entityList) {
                 if (entity.hasVehicle() && entity.vehicle.hasTrip() && entity.vehicle.hasPosition()) {
@@ -1582,16 +1604,28 @@ class MainActivity : AppCompatActivity(),
                     val trip = vehicle.trip
                     val position = vehicle.position
 
-                    // --- IDENTIFICACIÓN ÚNICA ---
+                    // 1. Identificamos el bus
                     val thisBusId = if (vehicle.hasVehicle() && vehicle.vehicle.hasId()) vehicle.vehicle.id else trip.tripId
 
-                    // --- ¿ES EL BUS QUE SEGUIMOS? ---
+                    // 2. Si es el bus que seguimos, guardamos TODOS sus datos nuevos
                     if (trackedBusId != null && thisBusId == trackedBusId) {
-                        newMarkerPosition = LatLng(position.latitude.toDouble(), position.longitude.toDouble())
-                    }
-                    // --------------------------------
+                        trackedBusNewPosition = LatLng(position.latitude.toDouble(), position.longitude.toDouble())
 
-                    // Filtros de visualización estándar...
+                        // Reconstruimos la info para el globo
+                        val route = GtfsDataManager.routes[trip.routeId]
+                        val directionStr = if (trip.directionId == 0) "Ida" else "Vuelta"
+                        val nombreLinea = route?.shortName ?: ""
+
+                        trackedBusNewTitle = "Línea $nombreLinea ($directionStr)"
+
+                        trackedBusNewSnippet = if (vehicle.hasVehicle() && vehicle.vehicle.hasLicensePlate()) {
+                            "Patente: ${vehicle.vehicle.licensePlate}"
+                        } else {
+                            "Patente no disponible"
+                        }
+                    }
+
+                    // --- Lógica de visualización de Iconos (GeoJSON) ---
                     var shouldShow = false
                     if (selectedRouteId != null) {
                         if (selectedRouteId == trip.routeId && selectedDirectionId == trip.directionId) shouldShow = true
@@ -1602,10 +1636,9 @@ class MainActivity : AppCompatActivity(),
                                 position.latitude.toDouble(), position.longitude.toDouble()
                             )
                             if (distance <= 1000) shouldShow = true
-                        } else { shouldShow = false }
+                        }
                     }
-
-                    // ¡Si lo seguimos, mostrarlo siempre!
+                    // Siempre mostrar el icono del bus rastreado
                     if (trackedBusId != null && thisBusId == trackedBusId) shouldShow = true
 
                     if (shouldShow) {
@@ -1623,24 +1656,36 @@ class MainActivity : AppCompatActivity(),
             }
 
             withContext(Dispatchers.Main) {
+                // 1. Actualizar iconos visuales de los buses
                 if (mapStyle != null && mapStyle!!.isFullyLoaded) {
                     mapStyle?.getSourceAs<GeoJsonSource>("bus-source")?.setGeoJson(FeatureCollection.fromFeatures(busFeatures))
                 }
 
-                // --- ACTUALIZAR POSICIÓN DEL GLOBO ---
-                if (newMarkerPosition != null && currentInfoMarker != null) {
-                    // 1. Mover el marcador
-                    currentInfoMarker?.position = newMarkerPosition
+                // 2. ACTUALIZACIÓN INFALIBLE DEL GLOBO
+                // Si tenemos nuevos datos del bus rastreado...
+                if (trackedBusNewPosition != null && trackedBusNewTitle != null) {
 
-                    // 2. Forzar actualización y mantener el cuadro de texto abierto
-                    currentInfoMarker?.let { marker ->
-                        map.updateMarker(marker)
-                        if (!marker.isInfoWindowShown) {
-                            map.selectMarker(marker)
-                        }
-                    }
+                    // A. Borramos el marcador antiguo (si existe) para evitar que el globo se quede pegado
+                    currentInfoMarker?.let { map.removeMarker(it) }
+
+                    // B. Creamos el icono transparente
+                    val iconFactory = IconFactory.getInstance(this@MainActivity)
+                    val transparentIcon = iconFactory.fromBitmap(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888))
+
+                    // C. Creamos un marcador NUEVO en la posición NUEVA
+                    val newMarker = map.addMarker(MarkerOptions()
+                        .position(trackedBusNewPosition!!)
+                        .title(trackedBusNewTitle)
+                        .snippet(trackedBusNewSnippet)
+                        .icon(transparentIcon))
+
+                    // D. Guardamos la referencia y ABRIMOS el globo inmediatamente
+                    currentInfoMarker = newMarker
+                    map.selectMarker(newMarker)
+
+                    // (Opcional) Si quieres que la cámara también siga al bus, descomenta esto:
+                    map.animateCamera(CameraUpdateFactory.newLatLng(trackedBusNewPosition!!))
                 }
-                // -------------------------------------
             }
         }
     }
