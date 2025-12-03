@@ -62,6 +62,8 @@
         app:layout_anchorGravity="bottom"
         android:layout_marginTop="120dp"
         tools:visibility="visible" />
+
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/search_results_recyclerview"
         android:layout_width="match_parent"
@@ -78,6 +80,8 @@
         tools:visibility="visible"
         tools:listitem="@layout/item_search_result"
         android:layoutAnimation="@anim/layout_fall_down"/>
+
+
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/map_style_fab"
         android:layout_width="wrap_content"
@@ -93,6 +97,22 @@
         app:rippleColor="@android:color/white"
         app:fabSize="mini"
         android:translationY="-40dp"/>
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/layers_fab"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:contentDescription="Filtrar Capas"
+        android:src="@drawable/filtrar"
+        android:translationY="-40dp"
+        app:elevation="6dp"
+        app:fabSize="mini"
+        app:hoveredFocusedTranslationZ="8dp"
+        app:layout_anchor="@+id/map_style_fab"
+        app:layout_anchorGravity="top|center"
+        app:pressedTranslationZ="12dp"
+        app:rippleColor="@android:color/white" />
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/location_fab"

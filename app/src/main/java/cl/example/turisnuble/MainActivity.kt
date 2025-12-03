@@ -157,6 +157,12 @@ class MainActivity : AppCompatActivity(),
     private var locationButtonState = 0
 
     private var preventRouteZoom = false
+
+    // --- VARIABLES PARA EL FILTRO DE CAPAS ---
+    private var isBusesVisible = true
+    private var isParaderosVisible = true
+    private var isTurismoVisible = true
+    // -----------------------------------------
     // ----------------------------------------------
 
     // --- apiService (sin cambios) ---
@@ -464,6 +470,13 @@ class MainActivity : AppCompatActivity(),
             }
         }
 
+        // --- NUEVO: CONEXIÓN DEL BOTÓN DE CAPAS (FILTRO) ---
+        val layersFab: FloatingActionButton = findViewById(R.id.layers_fab)
+        layersFab.setOnClickListener {
+            showLayerFilterDialog()
+        }
+        // ---------------------------------------------------
+
         searchView = findViewById(R.id.search_view)
         setupSearchListener()
 
@@ -582,6 +595,48 @@ class MainActivity : AppCompatActivity(),
         setIntent(intent) // Actualizar el intent guardado
         processIntent(intent) // Procesar la nueva instrucción
     }
+
+    // --- FUNCIONES PARA EL FILTRO DE CAPAS ---
+
+    private fun showLayerFilterDialog() {
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+        builder.setTitle("Filtrar Mapa")
+
+        // Opciones del menú
+        val items = arrayOf("Buses en tiempo real", "Paraderos", "Puntos Turísticos")
+        val checkedItems = booleanArrayOf(isBusesVisible, isParaderosVisible, isTurismoVisible)
+
+        builder.setMultiChoiceItems(items, checkedItems) { _, which, isChecked ->
+            when (which) {
+                0 -> { // Buses
+                    isBusesVisible = isChecked
+                    toggleLayerVisibility("bus-layer", isChecked)
+                }
+                1 -> { // Paraderos
+                    isParaderosVisible = isChecked
+                    toggleLayerVisibility("paradero-layer", isChecked)
+                }
+                2 -> { // Turismo
+                    isTurismoVisible = isChecked
+                    toggleLayerVisibility("turismo-layer", isChecked)
+                }
+            }
+        }
+
+        builder.setPositiveButton("Cerrar", null)
+        builder.show()
+    }
+
+    private fun toggleLayerVisibility(layerId: String, isVisible: Boolean) {
+        if (::map.isInitialized) {
+            map.getStyle { style ->
+                style.getLayer(layerId)?.setProperties(
+                    PropertyFactory.visibility(if (isVisible) Property.VISIBLE else Property.NONE)
+                )
+            }
+        }
+    }
+    // -----------------------------------------
 
     // --- NUEVA FUNCIÓN ---
     private fun updateTurismoSelection(selectedId: Int?) {
@@ -977,8 +1032,7 @@ class MainActivity : AppCompatActivity(),
         loadMapIcons(style)
         setupParaderoLayer(style)
         setupBusLayer(style)
-        // --- CAMBIO: Usamos setupTurismoLayer en lugar de addTurismoMarkers
-        setupTurismoLayer(style)
+        setupTurismoLayer(style) // Asegúrate de tener esta función implementada como vimos antes
 
         enableLocation(style)
         startBusDataFetching()
@@ -989,7 +1043,7 @@ class MainActivity : AppCompatActivity(),
                 drawRoute(route, selectedDirectionId!!)
             }
         } else {
-            // --- CAMBIO: Mostramos TODOS los paraderos si no hay ruta seleccionada ---
+            // Mostramos TODOS los paraderos si no hay ruta seleccionada
             showAllStops()
         }
 
@@ -1004,6 +1058,13 @@ class MainActivity : AppCompatActivity(),
         }
 
         isStyleLoading = false
+
+        // --- NUEVO: APLICAR FILTROS GUARDADOS ---
+        // Esto asegura que si el usuario ocultó algo, se mantenga oculto al cambiar el estilo del mapa
+        toggleLayerVisibility("bus-layer", isBusesVisible)
+        toggleLayerVisibility("paradero-layer", isParaderosVisible)
+        toggleLayerVisibility("turismo-layer", isTurismoVisible)
+        // ----------------------------------------
 
         // --- EJECUTAR ACCIÓN PENDIENTE (SI EXISTE) ---
         pendingAction?.invoke()
