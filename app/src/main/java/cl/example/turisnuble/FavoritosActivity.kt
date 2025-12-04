@@ -41,7 +41,7 @@ class FavoritosActivity : AppCompatActivity() {
         auth = Firebase.auth
 
         // Encontrar vistas
-        btnBack = findViewById(R.id.btn_favoritos_back)
+        btnBack = findViewById(R.id.btn_back_fav)
         rvFavoritos = findViewById(R.id.rv_favoritos)
         pbLoading = findViewById(R.id.pb_favoritos_loading)
         tvEmpty = findViewById(R.id.tv_favoritos_empty)

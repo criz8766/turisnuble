@@ -27,8 +27,7 @@
             android:layout_height="120dp"
             android:scaleType="centerCrop"
             android:contentDescription="Imagen del punto turístico"
-            app:shapeAppearanceOverlay="@style/RoundedCornerImageView"
-            tools:src="@drawable/catedral_chillan" />
+            app:shapeAppearanceOverlay="@style/RoundedCornerImageView"/>
 
         <LinearLayout
             android:layout_width="0dp"

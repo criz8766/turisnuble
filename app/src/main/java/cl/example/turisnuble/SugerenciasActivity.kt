@@ -36,7 +36,7 @@ class SugerenciasActivity : AppCompatActivity() {
     private fun initViews() {
         etSugerencia = findViewById(R.id.et_sugerencia)
         btnEnviar = findViewById(R.id.btn_enviar)
-        btnBack = findViewById(R.id.btn_back)
+        btnBack = findViewById(R.id.btn_back_sugerencias)
         progressBar = findViewById(R.id.progressBar)
     }
 

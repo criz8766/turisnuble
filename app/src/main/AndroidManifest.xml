@@ -43,8 +43,17 @@
             android:exported="false" />
 
         <activity
-            android:name=".SugerenciasActivity"
+            android:name="cl.example.turisnuble.ForgotPasswordActivity"
             android:exported="false" />
+
+        <activity
+            android:name="cl.example.turisnuble.RegisterActivity"
+            android:exported="false" />
+
+        <activity
+            android:name="cl.example.turisnuble.SugerenciasActivity"
+            android:exported="false" />
+
     </application>
 
 

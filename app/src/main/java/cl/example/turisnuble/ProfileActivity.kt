@@ -52,7 +52,7 @@ class ProfileActivity : AppCompatActivity() {
         tvEmail = findViewById(R.id.tv_profile_email)
         btnSave = findViewById(R.id.btn_profile_save_name)
         btnResetPass = findViewById(R.id.btn_profile_reset_password)
-        btnBack = findViewById(R.id.btn_profile_back)
+        btnBack = findViewById(R.id.btn_back_profile)
         btnDelete = findViewById(R.id.btn_profile_delete_account)
 
         // Cargar datos del perfil
