@@ -1,4 +1,4 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.models
 
 // Enum para saber qué tipo de resultado es
 enum class SearchResultType {

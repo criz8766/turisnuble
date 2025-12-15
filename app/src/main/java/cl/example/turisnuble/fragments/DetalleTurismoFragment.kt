@@ -1,5 +1,7 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.fragments
 
+// --- IMPORTACIONES DE GLIDE AÑADIDAS ---
+// ---------------------------------------
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
@@ -14,14 +16,17 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-// --- IMPORTACIONES DE GLIDE AÑADIDAS ---
+import cl.example.turisnuble.R
+import cl.example.turisnuble.data.FavoritesManager
+import cl.example.turisnuble.data.GtfsDataManager
+import cl.example.turisnuble.data.GtfsStop
+import cl.example.turisnuble.models.PuntoTuristico
+import cl.example.turisnuble.utils.DetalleTurismoNavigator
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.bitmap.CenterCrop
-// ---------------------------------------
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.ktx.Firebase
-import java.io.Serializable
 
 class DetalleTurismoFragment : Fragment() {
 
@@ -84,10 +89,12 @@ class DetalleTurismoFragment : Fragment() {
         view.findViewById<TextView>(R.id.nombre_punto_turistico).text = puntoTuristico.nombre
         view.findViewById<TextView>(R.id.direccion_punto_turistico).text = puntoTuristico.direccion
 
-        view.findViewById<TextView>(R.id.categoria_punto_turistico).text = puntoTuristico.categoria.uppercase()
+        view.findViewById<TextView>(R.id.categoria_punto_turistico).text =
+            puntoTuristico.categoria.uppercase()
 
         // ... (Resto del código igual: paraderos cercanos, favoritos, etc.) ...
-        val nearbyStops = GtfsDataManager.getNearbyStops(puntoTuristico.latitud, puntoTuristico.longitud, 3)
+        val nearbyStops =
+            GtfsDataManager.getNearbyStops(puntoTuristico.latitud, puntoTuristico.longitud, 3)
         val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_view_paraderos_cercanos)
         recyclerView.layoutManager = LinearLayoutManager(context)
         val noParaderosTextView = view.findViewById<TextView>(R.id.no_paraderos_cercanos)

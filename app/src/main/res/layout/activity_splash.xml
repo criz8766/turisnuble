@@ -7,7 +7,7 @@
     android:layout_height="match_parent"
     android:background="@drawable/bg_splash_gradient"
     android:fitsSystemWindows="true"
-    tools:context=".SplashActivity">
+    tools:context=".activities.SplashActivity">
 
     <!-- Logo centrado -->
     <ImageView

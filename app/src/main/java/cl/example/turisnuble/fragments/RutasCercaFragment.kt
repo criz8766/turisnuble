@@ -1,6 +1,7 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.fragments
 
 import android.content.Context
+import android.location.Location
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -10,11 +11,14 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import cl.example.turisnuble.R
+import cl.example.turisnuble.data.GtfsDataManager
+import cl.example.turisnuble.data.GtfsStop
+import cl.example.turisnuble.data.SharedViewModel
+import cl.example.turisnuble.utils.MapMover
 import com.google.android.gms.location.LocationServices
 import com.google.transit.realtime.GtfsRealtime
-import org.maplibre.android.geometry.LatLng
 import java.util.concurrent.TimeUnit
-import android.location.Location
 
 // Las data classes no cambian
 data class LlegadaInfo(val linea: String, val directionId: Int, val tiempoLlegadaMin: Int)
@@ -49,7 +53,10 @@ class RutasCercaFragment : Fragment() {
             // 1. Solo le decimos al ViewModel qué paradero seleccionar (para el ícono rojo).
             sharedViewModel.selectStop(paraderoSeleccionado.stopId)
             // 2. Y le pedimos a la MainActivity que mueva el mapa hacia él.
-            mapMover?.centerMapOnPoint(paraderoSeleccionado.location.latitude, paraderoSeleccionado.location.longitude)
+            mapMover?.centerMapOnPoint(
+                paraderoSeleccionado.location.latitude,
+                paraderoSeleccionado.location.longitude
+            )
             // No reseteamos nada. El contexto del punto turístico se mantiene.
         }
         recyclerView.adapter = adapter
@@ -80,14 +87,16 @@ class RutasCercaFragment : Fragment() {
             calculateStops(feed, calculationCenter.latitude, calculationCenter.longitude)
         } else {
             // Si no, volvemos al comportamiento original: usar la ubicación del GPS.
-            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireActivity())
+            val fusedLocationClient =
+                LocationServices.getFusedLocationProviderClient(requireActivity())
             try {
                 fusedLocationClient.lastLocation.addOnSuccessListener { location ->
                     location?.let {
                         calculateStops(feed, it.latitude, it.longitude)
                     }
                 }
-            } catch (e: SecurityException) { /* Sin permisos */ }
+            } catch (e: SecurityException) { /* Sin permisos */
+            }
         }
     }
 
@@ -95,7 +104,12 @@ class RutasCercaFragment : Fragment() {
     private fun calculateStops(feed: GtfsRealtime.FeedMessage, lat: Double, lon: Double) {
         // La lógica de cálculo es la misma, pero ahora es reutilizable.
         val paraderosCercanos = GtfsDataManager.stops.values
-            .map { stop -> Pair(stop, distanceTo(lat, lon, stop.location.latitude, stop.location.longitude)) }
+            .map { stop ->
+                Pair(
+                    stop,
+                    distanceTo(lat, lon, stop.location.latitude, stop.location.longitude)
+                )
+            }
             .filter { it.second <= 500 }
             .sortedBy { it.second }
             .map { it.first }
@@ -113,7 +127,8 @@ class RutasCercaFragment : Fragment() {
                             val linea = GtfsDataManager.routes[trip.routeId]?.shortName ?: "Desc."
                             val tiempoLlegada = stopUpdate.arrival.time
                             val tiempoActual = System.currentTimeMillis() / 1000
-                            val diffMinutos = TimeUnit.SECONDS.toMinutes(tiempoLlegada - tiempoActual).toInt()
+                            val diffMinutos =
+                                TimeUnit.SECONDS.toMinutes(tiempoLlegada - tiempoActual).toInt()
                             if (diffMinutos >= 0) {
                                 llegadas.add(LlegadaInfo(linea, trip.directionId, diffMinutos))
                             }
@@ -151,7 +166,8 @@ class ParaderosCercanosAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ParaderoViewHolder {
-        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_paradero_cercano, parent, false)
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_paradero_cercano, parent, false)
         return ParaderoViewHolder(view)
     }
 
@@ -165,9 +181,11 @@ class ParaderosCercanosAdapter(
             holder.llegadasBuses.text = "No hay próximas llegadas."
         } else {
             val llegadasTexto = item.llegadas.take(3).joinToString(separator = "  |  ") { llegada ->
-                val lineaText = if (llegada.linea == "13A" || llegada.linea == "13B") "13" else llegada.linea
+                val lineaText =
+                    if (llegada.linea == "13A" || llegada.linea == "13B") "13" else llegada.linea
                 val directionText = if (llegada.directionId == 0) "Ida" else "Vuelta"
-                val tiempoText = if (llegada.tiempoLlegadaMin == 0) "Ahora" else "${llegada.tiempoLlegadaMin} min"
+                val tiempoText =
+                    if (llegada.tiempoLlegadaMin == 0) "Ahora" else "${llegada.tiempoLlegadaMin} min"
                 "Línea $lineaText $directionText: $tiempoText"
             }
             holder.llegadasBuses.text = llegadasTexto

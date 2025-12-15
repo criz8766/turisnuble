@@ -1,7 +1,8 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.data
 
 import android.content.Context
 import android.util.Log
+import cl.example.turisnuble.models.PuntoTuristico
 import org.json.JSONArray
 import java.io.File
 

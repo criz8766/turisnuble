@@ -1,7 +1,8 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.activities
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
 import android.widget.Button
@@ -10,14 +11,13 @@ import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import cl.example.turisnuble.R
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.ktx.Firebase
-
-import android.graphics.Color
 
 class ProfileActivity : AppCompatActivity() {
 
@@ -104,10 +104,15 @@ class ProfileActivity : AppCompatActivity() {
             user.updateProfile(profileUpdates)
                 .addOnCompleteListener { task ->
                     if (task.isSuccessful) {
-                        Toast.makeText(this, "Nombre actualizado correctamente", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "Nombre actualizado correctamente", Toast.LENGTH_SHORT)
+                            .show()
                         finish() // Vuelve a MainActivity
                     } else {
-                        Toast.makeText(this, "Error al actualizar el nombre: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            this,
+                            "Error al actualizar el nombre: ${task.exception?.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
         }
@@ -118,9 +123,17 @@ class ProfileActivity : AppCompatActivity() {
             auth.sendPasswordResetEmail(email)
                 .addOnCompleteListener { task ->
                     if (task.isSuccessful) {
-                        Toast.makeText(this, "Correo de recuperación enviado a $email", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            this,
+                            "Correo de recuperación enviado a $email",
+                            Toast.LENGTH_LONG
+                        ).show()
                     } else {
-                        Toast.makeText(this, "Error al enviar correo: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            this,
+                            "Error al enviar correo: ${task.exception?.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
         }
@@ -141,7 +154,8 @@ class ProfileActivity : AppCompatActivity() {
         currentUser?.delete()
             ?.addOnCompleteListener { task ->
                 if (task.isSuccessful) {
-                    Toast.makeText(this, "Cuenta eliminada exitosamente.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Cuenta eliminada exitosamente.", Toast.LENGTH_SHORT)
+                        .show()
                     // Enviamos al usuario de vuelta al Login y limpiamos el historial
                     val intent = Intent(this, LoginActivity::class.java)
                     intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -152,16 +166,22 @@ class ProfileActivity : AppCompatActivity() {
                     // Manejar error común de "re-autenticación"
                     if (task.exception is FirebaseAuthRecentLoginRequiredException) {
                         // --- INICIO: CORRECCIÓN ---
-                        Toast.makeText(this, "Esta es una operación sensible. Por favor, vuelve a iniciar sesión e inténtalo de nuevo.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            this,
+                            "Esta es una operación sensible. Por favor, vuelve a iniciar sesión e inténtalo de nuevo.",
+                            Toast.LENGTH_LONG
+                        ).show()
                         // --- FIN: CORRECCIÓN ---
 
                         auth.signOut()
                         val intent = Intent(this, LoginActivity::class.java)
-                        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                        intent.flags =
+                            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                         startActivity(intent)
                         finish()
                     } else {
-                        Toast.makeText(this, "Error: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "Error: ${task.exception?.message}", Toast.LENGTH_LONG)
+                            .show()
                     }
                 }
             }

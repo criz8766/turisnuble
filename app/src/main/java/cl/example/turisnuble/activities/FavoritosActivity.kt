@@ -1,6 +1,7 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.activities
 
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import android.widget.ImageView
@@ -10,12 +11,14 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import cl.example.turisnuble.R
+import cl.example.turisnuble.adapters.FavoritosAdapter
+import cl.example.turisnuble.data.FavoritesManager
+import cl.example.turisnuble.data.GtfsDataManager
+import cl.example.turisnuble.data.TurismoDataManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.ktx.Firebase
-
-import android.graphics.Color
-
 
 
 class FavoritosActivity : AppCompatActivity() {
@@ -81,9 +84,11 @@ class FavoritosActivity : AppCompatActivity() {
                             false
                         }
                     }
+
                     FavoritesManager.FavoriteType.PARADERO -> {
                         GtfsDataManager.stops.containsKey(item.id)
                     }
+
                     FavoritesManager.FavoriteType.RUTA -> {
                         GtfsDataManager.routes.containsKey(item.id)
                     }
@@ -105,7 +110,8 @@ class FavoritosActivity : AppCompatActivity() {
 
                         // Estas banderas aseguran que si MainActivity ya está abierta,
                         // se reutilice y se limpie lo que esté encima, en lugar de crear una nueva instancia.
-                        intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        intent.flags =
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
 
                         // Enviamos los datos necesarios según el tipo
                         when (selectedItem.type) {
@@ -113,10 +119,12 @@ class FavoritosActivity : AppCompatActivity() {
                                 intent.putExtra("EXTRA_ACTION_TYPE", "TURISMO")
                                 intent.putExtra("EXTRA_ID", selectedItem.id)
                             }
+
                             FavoritesManager.FavoriteType.PARADERO -> {
                                 intent.putExtra("EXTRA_ACTION_TYPE", "PARADERO")
                                 intent.putExtra("EXTRA_ID", selectedItem.id)
                             }
+
                             FavoritesManager.FavoriteType.RUTA -> {
                                 intent.putExtra("EXTRA_ACTION_TYPE", "RUTA")
                                 intent.putExtra("EXTRA_ID", selectedItem.id)

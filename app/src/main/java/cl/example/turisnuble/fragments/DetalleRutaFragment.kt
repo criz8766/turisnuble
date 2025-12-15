@@ -1,4 +1,4 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.fragments
 
 import android.content.Context
 import android.os.Bundle
@@ -6,13 +6,19 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.ImageButton
 import android.widget.TextView
-import android.widget.Button
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import cl.example.turisnuble.R
+import cl.example.turisnuble.data.FavoritesManager
+import cl.example.turisnuble.data.GtfsDataManager
+import cl.example.turisnuble.data.GtfsStop
+import cl.example.turisnuble.utils.MapMover
+import cl.example.turisnuble.utils.ParaderoActionHandler
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.database.DataSnapshot
@@ -69,7 +75,10 @@ class DetalleRutaFragment : Fragment() {
             recyclerView.adapter = ParaderosDetalleAdapter(
                 paraderos,
                 onItemClick = { paraderoSeleccionado ->
-                    mapMover?.centerMapOnPoint(paraderoSeleccionado.location.latitude, paraderoSeleccionado.location.longitude) // Corregido: .lat .lon
+                    mapMover?.centerMapOnPoint(
+                        paraderoSeleccionado.location.latitude,
+                        paraderoSeleccionado.location.longitude
+                    ) // Corregido: .lat .lon
                 },
                 onGetDirectionsClick = { paraderoSeleccionado ->
                     paraderoActionHandler?.onGetDirectionsToStop(paraderoSeleccionado)
@@ -117,15 +126,21 @@ class ParaderosDetalleAdapter(
     init {
         // Si el usuario está logueado, carga sus paraderos favoritos
         currentUser?.uid?.let { userId ->
-            FavoritesManager.getParaderoFavRef(userId, "").addValueEventListener(object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    favoriteParaderoIds = snapshot.children.mapNotNull { it.key }.toSet()
-                    notifyDataSetChanged() // Recarga la lista para mostrar estrellas
-                }
-                override fun onCancelled(error: DatabaseError) {
-                    Log.w("ParaderosDetDetalle", "Error al cargar paraderos favoritos", error.toException())
-                }
-            })
+            FavoritesManager.getParaderoFavRef(userId, "")
+                .addValueEventListener(object : ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        favoriteParaderoIds = snapshot.children.mapNotNull { it.key }.toSet()
+                        notifyDataSetChanged() // Recarga la lista para mostrar estrellas
+                    }
+
+                    override fun onCancelled(error: DatabaseError) {
+                        Log.w(
+                            "ParaderosDetDetalle",
+                            "Error al cargar paraderos favoritos",
+                            error.toException()
+                        )
+                    }
+                })
         }
     }
     // --- FIN LÓGICA DE FAVORITOS (ADAPTER) ---
@@ -134,6 +149,7 @@ class ParaderosDetalleAdapter(
         val stopSequence: TextView = view.findViewById(R.id.stop_sequence)
         val stopName: TextView = view.findViewById(R.id.stop_name)
         val getDirectionsButton: Button = view.findViewById(R.id.btnGetDirectionsToStop)
+
         // --- AÑADIDO: El botón de favorito ---
         val favoriteButton: ImageButton = view.findViewById(R.id.btn_favorite_paradero)
     }
@@ -182,11 +198,19 @@ class ParaderosDetalleAdapter(
                 if (favoriteParaderoIds.contains(paradero.stopId)) {
                     // Ya es favorito -> Quitar
                     FavoritesManager.removeFavoriteParadero(userId, paradero.stopId)
-                    Toast.makeText(holder.itemView.context, "Paradero eliminado de favoritos", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        holder.itemView.context,
+                        "Paradero eliminado de favoritos",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 } else {
                     // No es favorito -> Añadir
                     FavoritesManager.addFavoriteParadero(userId, paradero)
-                    Toast.makeText(holder.itemView.context, "Paradero añadido a favoritos", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        holder.itemView.context,
+                        "Paradero añadido a favoritos",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
                 // El listener de la BD actualiza el ícono
             }

@@ -1,4 +1,4 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.adapters
 
 import android.view.LayoutInflater
 import android.view.View
@@ -6,6 +6,8 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import cl.example.turisnuble.R
+import cl.example.turisnuble.models.PuntoTuristico
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.resource.bitmap.CenterCrop
 
@@ -41,7 +43,8 @@ class TurismoAdapter(
         // 2. Asignar textos
         holder.nombre.text = punto.nombre
         holder.direccion.text = punto.direccion
-        holder.categoria.text = punto.categoria.uppercase() // <-- NUEVO: Mostramos la categoría en mayúsculas
+        holder.categoria.text =
+            punto.categoria.uppercase() // <-- NUEVO: Mostramos la categoría en mayúsculas
 
         // 3. Click Listener
         holder.itemView.setOnClickListener {

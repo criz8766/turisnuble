@@ -1,4 +1,8 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.utils
+
+import cl.example.turisnuble.data.GtfsRoute
+import cl.example.turisnuble.data.GtfsStop
+import cl.example.turisnuble.models.PuntoTuristico
 
 // Define aquí todas tus interfaces compartidas
 

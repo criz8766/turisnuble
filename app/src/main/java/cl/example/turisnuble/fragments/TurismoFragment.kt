@@ -1,4 +1,4 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.fragments
 
 import android.content.Context
 import android.os.Bundle
@@ -11,6 +11,11 @@ import androidx.activity.OnBackPressedCallback
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import cl.example.turisnuble.R
+import cl.example.turisnuble.adapters.CategoriaAdapter
+import cl.example.turisnuble.adapters.TurismoAdapter
+import cl.example.turisnuble.data.TurismoDataManager
+import cl.example.turisnuble.utils.TurismoActionHandler
 
 class TurismoFragment : Fragment() {
 
@@ -52,16 +57,18 @@ class TurismoFragment : Fragment() {
         }
 
         // Manejar el botón "Atrás" del teléfono para que vuelva a categorías en vez de salir
-        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (isShowingPoints) {
-                    showCategories()
-                } else {
-                    isEnabled = false
-                    requireActivity().onBackPressed()
+        requireActivity().onBackPressedDispatcher.addCallback(
+            viewLifecycleOwner,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (isShowingPoints) {
+                        showCategories()
+                    } else {
+                        isEnabled = false
+                        requireActivity().onBackPressed()
+                    }
                 }
-            }
-        })
+            })
 
         return view
     }
@@ -91,7 +98,8 @@ class TurismoFragment : Fragment() {
         txtTitulo.text = "Categoría: $categoria" // O simplemente el nombre de la cat
 
         // 2. Filtrar puntos
-        val puntosFiltrados = TurismoDataManager.puntosTuristicos.filter { it.categoria == categoria }
+        val puntosFiltrados =
+            TurismoDataManager.puntosTuristicos.filter { it.categoria == categoria }
 
         // 3. Configurar adaptador de puntos turísticos (el normal)
         val adapter = TurismoAdapter(puntosFiltrados) { puntoSeleccionado ->

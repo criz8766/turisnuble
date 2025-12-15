@@ -1,14 +1,15 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.data
 
 import android.content.Context
-import android.util.Log
-import org.maplibre.android.geometry.LatLng
 import android.location.Location
-import org.json.JSONArray
-import java.io.File
-import java.net.URL
+import android.util.Log
+import cl.example.turisnuble.fragments.DisplayRouteInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.maplibre.android.geometry.LatLng
+import java.io.File
+import java.net.URL
 
 // Clases de datos (sin cambios)
 data class GtfsRoute(
@@ -195,15 +196,32 @@ object GtfsDataManager {
 
     fun getNearbyStops(lat: Double, lon: Double, count: Int = 3): List<GtfsStop> {
         if (stops.isEmpty()) return emptyList()
-        return stops.values.map { it to distanceToInMeters(lat, lon, it.location.latitude, it.location.longitude) }
+        return stops.values.map {
+            it to distanceToInMeters(
+                lat,
+                lon,
+                it.location.latitude,
+                it.location.longitude
+            )
+        }
             .sortedBy { it.second }.take(count).map { it.first }
     }
 
     fun getRoutesForStop(stopId: String): List<DisplayRouteInfo> {
         val result = mutableSetOf<Pair<String, Int>>()
-        stopTimesByTrip.values.flatten().forEach { if (it.stopId == stopId) tripsByTripId[it.tripId]?.let { t -> result.add(t.routeId to t.directionId) } }
-        return result.mapNotNull { (rId, dId) -> routes[rId]?.let { DisplayRouteInfo(it, dId, if (dId == 0) "Ida" else "Vuelta") } }
+        stopTimesByTrip.values.flatten()
+            .forEach { if (it.stopId == stopId) tripsByTripId[it.tripId]?.let { t -> result.add(t.routeId to t.directionId) } }
+        return result.mapNotNull { (rId, dId) ->
+            routes[rId]?.let {
+                DisplayRouteInfo(
+                    it,
+                    dId,
+                    if (dId == 0) "Ida" else "Vuelta"
+                )
+            }
+        }
     }
 
-    private fun String.capitalize() = replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+    private fun String.capitalize() =
+        replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 }

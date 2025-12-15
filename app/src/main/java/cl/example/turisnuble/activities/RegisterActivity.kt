@@ -1,4 +1,4 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.activities
 
 import android.graphics.Color
 import android.os.Bundle
@@ -7,6 +7,7 @@ import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import cl.example.turisnuble.R
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.ktx.Firebase
@@ -42,11 +43,19 @@ class RegisterActivity : AppCompatActivity() {
                             val user = auth.currentUser
                             user?.sendEmailVerification()
 
-                            Toast.makeText(baseContext, "Registro exitoso. Verifica tu correo.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(
+                                baseContext,
+                                "Registro exitoso. Verifica tu correo.",
+                                Toast.LENGTH_LONG
+                            ).show()
                             auth.signOut() // Desloguear para forzar login verificado
                             finish() // Volver a la pantalla de Login
                         } else {
-                            Toast.makeText(baseContext, "Error al registrar: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                            Toast.makeText(
+                                baseContext,
+                                "Error al registrar: ${task.exception?.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
                         }
                     }
             } else {

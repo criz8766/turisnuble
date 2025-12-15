@@ -1,6 +1,5 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.activities
 
-import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
@@ -11,6 +10,7 @@ import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import cl.example.turisnuble.R
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -74,11 +74,16 @@ class LoginActivity : AppCompatActivity() {
                             if (user != null && user.isEmailVerified) {
                                 goToMainActivity()
                             } else {
-                                Toast.makeText(this, "Verifica tu correo electrónico.", Toast.LENGTH_LONG).show()
+                                Toast.makeText(
+                                    this,
+                                    "Verifica tu correo electrónico.",
+                                    Toast.LENGTH_LONG
+                                ).show()
                                 auth.signOut()
                             }
                         } else {
-                            Toast.makeText(this, "Credenciales incorrectas.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, "Credenciales incorrectas.", Toast.LENGTH_SHORT)
+                                .show()
                         }
                     }
             } else {
@@ -96,17 +101,19 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun setupGoogleLauncher() {
-        googleSignInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK) {
-                val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-                try {
-                    val account = task.getResult(ApiException::class.java)!!
-                    firebaseAuthWithGoogle(account.idToken!!)
-                } catch (e: ApiException) {
-                    Toast.makeText(this, "Error Google: ${e.message}", Toast.LENGTH_SHORT).show()
+        googleSignInLauncher =
+            registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                if (result.resultCode == RESULT_OK) {
+                    val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                    try {
+                        val account = task.getResult(ApiException::class.java)!!
+                        firebaseAuthWithGoogle(account.idToken!!)
+                    } catch (e: ApiException) {
+                        Toast.makeText(this, "Error Google: ${e.message}", Toast.LENGTH_SHORT)
+                            .show()
+                    }
                 }
             }
-        }
     }
 
     private fun firebaseAuthWithGoogle(idToken: String) {

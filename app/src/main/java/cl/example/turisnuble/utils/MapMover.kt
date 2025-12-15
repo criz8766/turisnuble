@@ -1,4 +1,4 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.utils
 
 // Definición ÚNICA de la interfaz para todo el proyecto.
 interface MapMover {

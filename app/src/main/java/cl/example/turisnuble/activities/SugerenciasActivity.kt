@@ -1,17 +1,17 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.activities
 
+import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import cl.example.turisnuble.R
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
-
-import android.graphics.Color
 
 class SugerenciasActivity : AppCompatActivity() {
 

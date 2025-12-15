@@ -7,7 +7,7 @@
     android:layout_height="match_parent"
     android:background="@drawable/bg_splash_gradient"
     android:padding="24dp"
-    tools:context=".SugerenciasActivity">
+    tools:context=".activities.SugerenciasActivity">
 
     <ImageButton
         android:id="@+id/btn_back_sugerencias"

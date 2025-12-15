@@ -1,8 +1,9 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.activities
 
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
 import android.view.animation.AnimationUtils
@@ -10,6 +11,9 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import cl.example.turisnuble.R
+import cl.example.turisnuble.data.GtfsDataManager
+import cl.example.turisnuble.data.TurismoDataManager
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
@@ -23,8 +27,6 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
-import android.graphics.Color
-
 @SuppressLint("CustomSplashScreen")
 class SplashActivity : AppCompatActivity() {
 
@@ -34,6 +36,7 @@ class SplashActivity : AppCompatActivity() {
     // --- URLs BASE ---
     // 1. Para GTFS y version.json (Raíz)
     private val URL_BASE_GTFS = "https://criz8766.github.io/datosgtfschillan/"
+
     // 2. Para Turismo (Subcarpeta)
     private val URL_BASE_TURISMO = "https://criz8766.github.io/datosgtfschillan/puntoturistico/"
 
@@ -100,7 +103,10 @@ class SplashActivity : AppCompatActivity() {
         val versionFile = File(internalStorageDir, "version.json")
 
         if (!versionFile.exists()) {
-            Log.d("SplashActivity", "Primera ejecución: Copiando archivos base a almacenamiento interno...")
+            Log.d(
+                "SplashActivity",
+                "Primera ejecución: Copiando archivos base a almacenamiento interno..."
+            )
             // Copia inicial desde Assets (Asumimos que turismo.json también está en assets root)
             GTFS_FILES.forEach { fileName -> copyAssetToFile(fileName, this) }
             copyAssetToFile(TURISMO_FILE, this)
@@ -123,7 +129,10 @@ class SplashActivity : AppCompatActivity() {
                 val remoteVersionJson = JSONObject(remoteJsonString)
                 val remoteVersion = remoteVersionJson.optLong("version", 0L)
 
-                Log.d("SplashActivity", "Versión Local: $localVersion, Versión Remota: $remoteVersion")
+                Log.d(
+                    "SplashActivity",
+                    "Versión Local: $localVersion, Versión Remota: $remoteVersion"
+                )
 
                 if (remoteVersion > localVersion) {
                     Log.i("SplashActivity", "Nueva versión detectada. Descargando archivos...")
@@ -143,13 +152,22 @@ class SplashActivity : AppCompatActivity() {
                 }
 
             } catch (e: Exception) {
-                Log.e("SplashActivity", "Error al chequear/descargar actualización. Usando datos locales.", e)
+                Log.e(
+                    "SplashActivity",
+                    "Error al chequear/descargar actualización. Usando datos locales.",
+                    e
+                )
             }
         }
     }
 
     // Función helper para descargar aceptando una URL Base dinámica
-    private fun downloadFile(fileName: String, baseUrl: String, destinationDir: File, cacheBuster: Long) {
+    private fun downloadFile(
+        fileName: String,
+        baseUrl: String,
+        destinationDir: File,
+        cacheBuster: Long
+    ) {
         try {
             val remoteUrl = "${baseUrl}${fileName}?_t=$cacheBuster"
 

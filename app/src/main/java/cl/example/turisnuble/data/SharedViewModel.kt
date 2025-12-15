@@ -1,8 +1,9 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.data
 
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
+import cl.example.turisnuble.fragments.DisplayRouteInfo
 import com.google.transit.realtime.GtfsRealtime
 import org.maplibre.android.geometry.LatLng
 

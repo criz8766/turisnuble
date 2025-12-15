@@ -1,4 +1,4 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.models
 
 import java.io.Serializable
 

@@ -1,6 +1,7 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.data
 
 import android.util.Log
+import cl.example.turisnuble.models.PuntoTuristico
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.ValueEventListener
@@ -35,8 +36,12 @@ object FavoritesManager {
     }
 
     fun checkFavoriteTurismoStatus(userId: String, puntoId: Int, onResult: (Boolean) -> Unit) {
-        getTurismoFavRef(userId, puntoId).addListenerForSingleValueEvent(object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) { onResult(snapshot.exists()) }
+        getTurismoFavRef(userId, puntoId).addListenerForSingleValueEvent(object :
+            ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                onResult(snapshot.exists())
+            }
+
             override fun onCancelled(error: DatabaseError) {
                 Log.w(TAG, "Error al revisar favorito turismo", error.toException())
                 onResult(false)
@@ -72,8 +77,12 @@ object FavoritesManager {
     }
 
     fun checkFavoriteParaderoStatus(userId: String, stopId: String, onResult: (Boolean) -> Unit) {
-        getParaderoFavRef(userId, stopId).addListenerForSingleValueEvent(object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) { onResult(snapshot.exists()) }
+        getParaderoFavRef(userId, stopId).addListenerForSingleValueEvent(object :
+            ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                onResult(snapshot.exists())
+            }
+
             override fun onCancelled(error: DatabaseError) {
                 Log.w(TAG, "Error al revisar favorito paradero", error.toException())
                 onResult(false)
@@ -107,7 +116,10 @@ object FavoritesManager {
 
     fun checkFavoriteRutaStatus(userId: String, routeId: String, onResult: (Boolean) -> Unit) {
         getRutaFavRef(userId, routeId).addListenerForSingleValueEvent(object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) { onResult(snapshot.exists()) }
+            override fun onDataChange(snapshot: DataSnapshot) {
+                onResult(snapshot.exists())
+            }
+
             override fun onCancelled(error: DatabaseError) {
                 Log.w(TAG, "Error al revisar favorito ruta", error.toException())
                 onResult(false)

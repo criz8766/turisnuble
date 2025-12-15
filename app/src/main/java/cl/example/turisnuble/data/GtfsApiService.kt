@@ -1,4 +1,4 @@
-package cl.example.turisnuble
+package cl.example.turisnuble.data
 
 import com.google.transit.realtime.GtfsRealtime
 import retrofit2.Response

@@ -1,6 +1,6 @@
 // app/src/main/java/cl/example/turisnuble/FavoritosAdapter.kt
 
-package cl.example.turisnuble
+package cl.example.turisnuble.adapters
 
 import android.view.LayoutInflater
 import android.view.View
@@ -8,6 +8,8 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import cl.example.turisnuble.R
+import cl.example.turisnuble.data.FavoritesManager
 
 class FavoritosAdapter(
     private val favorites: List<FavoritesManager.FavoriteItem>,
@@ -40,10 +42,12 @@ class FavoritosAdapter(
                     icon.setImageResource(R.drawable.ic_turismo) // Asumo que tienes este drawable
                     tipo.text = "Punto Turístico"
                 }
+
                 FavoritesManager.FavoriteType.PARADERO -> {
                     icon.setImageResource(R.drawable.ic_paradero) // Asumo que tienes este drawable
                     tipo.text = "Paradero"
                 }
+
                 FavoritesManager.FavoriteType.RUTA -> {
                     icon.setImageResource(R.drawable.ic_bus) // Asumo que tienes este drawable
                     tipo.text = "Ruta"
