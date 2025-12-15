@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Converted to MaterialCardView with modern design -->
 <com.google.android.material.card.MaterialCardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -24,7 +23,6 @@
         android:gravity="center_vertical"
         android:minHeight="72dp">
 
-        <!-- Enhanced icon with Material styling and proper tint -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="48dp"
             android:layout_height="48dp"
@@ -49,7 +47,6 @@
             android:orientation="vertical"
             android:layout_marginStart="16dp">
 
-            <!-- Improved typography with better contrast -->
             <TextView
                 android:id="@+id/nombre_linea"
                 android:layout_width="wrap_content"
@@ -74,11 +71,22 @@
 
         </LinearLayout>
 
-        <!-- Added chevron icon for navigation hint -->
+        <TextView
+            android:id="@+id/txt_tiempo_espera"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="#4CAF50"
+            android:visibility="gone"
+            tools:visibility="visible"
+            tools:text="5 min" />
+
         <ImageView
             android:layout_width="24dp"
             android:layout_height="24dp"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="4dp"
             android:src="@android:drawable/ic_menu_more"
             android:rotation="270"
             android:contentDescription="Ver detalles de la ruta"

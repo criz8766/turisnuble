@@ -11,7 +11,8 @@ import org.maplibre.android.geometry.LatLng
 import java.io.File
 import java.net.URL
 
-// Clases de datos (sin cambios)
+// --- CLASES DE DATOS ---
+
 data class GtfsRoute(
     val routeId: String,
     val shortName: String,
@@ -33,10 +34,12 @@ data class GtfsTrip(
     val shapeId: String
 )
 
+// MODIFICACIÓN: arrivalTime es nullable (?) para evitar crasheos si falta en el JSON
 data class GtfsStopTime(
     val tripId: String,
     val stopId: String,
-    val stopSequence: Int
+    val stopSequence: Int,
+    val arrivalTime: String? = null
 )
 
 object GtfsDataManager {
@@ -48,8 +51,12 @@ object GtfsDataManager {
     val stops = mutableMapOf<String, GtfsStop>()
     val shapes = mutableMapOf<String, MutableList<LatLng>>()
     val trips = mutableMapOf<String, GtfsTrip>()
-    private val stopTimesByTrip = mutableMapOf<String, MutableList<GtfsStopTime>>()
-    private val tripsByTripId = mutableMapOf<String, GtfsTrip>()
+
+    // Almacena los tiempos de parada por viaje
+    val stopTimesByTrip = mutableMapOf<String, MutableList<GtfsStopTime>>()
+
+    // Índice rápido para buscar trips por ID
+    val tripsByTripId = mutableMapOf<String, GtfsTrip>()
 
     // --- Carga de datos locales (Micros) ---
     fun loadData(context: Context) {
@@ -59,6 +66,7 @@ object GtfsDataManager {
         try {
             val filesDir = context.filesDir
 
+            // 1. Routes
             val routesJson = File(filesDir, "routes.json").bufferedReader().readText()
             val routesArray = JSONArray(routesJson)
             for (i in 0 until routesArray.length()) {
@@ -72,6 +80,7 @@ object GtfsDataManager {
                 routes[route.routeId] = route
             }
 
+            // 2. Stops
             val stopsJson = File(filesDir, "stops.json").bufferedReader().readText()
             val stopsArray = JSONArray(stopsJson)
             for (i in 0 until stopsArray.length()) {
@@ -84,6 +93,7 @@ object GtfsDataManager {
                 stops[stop.stopId] = stop
             }
 
+            // 3. Shapes
             val shapesJson = File(filesDir, "shapes.json").bufferedReader().readText()
             val shapesArray = JSONArray(shapesJson)
             for (i in 0 until shapesArray.length()) {
@@ -93,6 +103,7 @@ object GtfsDataManager {
                 shapes.getOrPut(shapeId) { mutableListOf() }.add(point)
             }
 
+            // 4. Trips
             val tripsJson = File(filesDir, "trips.json").bufferedReader().readText()
             val tripsArray = JSONArray(tripsJson)
             for (i in 0 until tripsArray.length()) {
@@ -109,19 +120,27 @@ object GtfsDataManager {
                 tripsByTripId[trip.tripId] = trip
             }
 
+            // 5. StopTimes (CORREGIDO)
             val stopTimesJson = File(filesDir, "stopTimes.json").bufferedReader().readText()
             val stopTimesArray = JSONArray(stopTimesJson)
             for (i in 0 until stopTimesArray.length()) {
                 val obj = stopTimesArray.getJSONObject(i)
+
+                // Intentamos leer arrival_time, si no existe usamos null
+                val arrivalTime = if (obj.has("arrival_time")) obj.getString("arrival_time") else null
+
                 val stopTime = GtfsStopTime(
                     tripId = obj.getString("trip_id"),
                     stopId = obj.getString("stop_id"),
-                    stopSequence = obj.getInt("stop_sequence")
+                    stopSequence = obj.getInt("stop_sequence"),
+                    arrivalTime = arrivalTime // Asignamos el valor (puede ser null)
                 )
                 stopTimesByTrip.getOrPut(stopTime.tripId) { mutableListOf() }.add(stopTime)
             }
 
             isDataLoaded = true
+            Log.d("GtfsDataManager", "Carga local finalizada con éxito.")
+
         } catch (e: Exception) {
             Log.e("GtfsDataManager", "Error carga local", e)
         }
@@ -180,7 +199,8 @@ object GtfsDataManager {
         }
     }
 
-    // Funciones auxiliares (sin cambios)
+    // --- Funciones auxiliares ---
+
     fun getStopsForRoute(routeId: String, directionId: Int): List<GtfsStop> {
         val tripKey = "${routeId}_${directionId}"
         val tripId = trips[tripKey]?.tripId ?: return emptyList()
@@ -209,8 +229,17 @@ object GtfsDataManager {
 
     fun getRoutesForStop(stopId: String): List<DisplayRouteInfo> {
         val result = mutableSetOf<Pair<String, Int>>()
+
+        // Iteramos sobre todos los stopTimes para encontrar coincidencias
         stopTimesByTrip.values.flatten()
-            .forEach { if (it.stopId == stopId) tripsByTripId[it.tripId]?.let { t -> result.add(t.routeId to t.directionId) } }
+            .forEach {
+                if (it.stopId == stopId) {
+                    tripsByTripId[it.tripId]?.let { t ->
+                        result.add(t.routeId to t.directionId)
+                    }
+                }
+            }
+
         return result.mapNotNull { (rId, dId) ->
             routes[rId]?.let {
                 DisplayRouteInfo(

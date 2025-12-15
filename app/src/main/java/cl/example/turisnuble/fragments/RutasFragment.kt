@@ -3,6 +3,7 @@ package cl.example.turisnuble.fragments
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.location.Location
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -34,7 +35,9 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.ktx.Firebase
+import com.google.transit.realtime.GtfsRealtime
 import kotlinx.coroutines.launch
+import org.maplibre.android.geometry.LatLng
 
 data class DisplayRouteInfo(
     val route: GtfsRoute,
@@ -110,6 +113,13 @@ class RutasFragment : Fragment() {
             }
         }
 
+        // Observar cambios en tiempo real de los buses
+        sharedViewModel.feedMessage.observe(viewLifecycleOwner) { feedMessage ->
+            if (isShowingList && recyclerView.adapter is RutasAdapter) {
+                (recyclerView.adapter as RutasAdapter).updateRealtimeData(feedMessage?.entityList)
+            }
+        }
+
         return view
     }
 
@@ -163,13 +173,19 @@ class RutasFragment : Fragment() {
         }
     }
 
+    // LISTADO GENERAL (Sin tiempos)
     private fun showRouteList(title: String, routes: List<DisplayRouteInfo>) {
         isShowingList = true
         btnVolver.visibility = View.VISIBLE
         txtTitulo.text = title
 
+        // Pasamos null para que NO calcule tiempos en la vista general
+        val currentStopId: String? = null
+        val currentStopLocation: LatLng? = null
+        val currentEntities: List<GtfsRealtime.FeedEntity>? = null
+
         if (title == "Buses Rurales") {
-            val adapter = RutasAdapter(routes, emptyList(), onItemClick = { displayRoute ->
+            val adapter = RutasAdapter(routes, emptyList(), null, null, null, onItemClick = { displayRoute ->
                 routeDrawer?.drawRoute(displayRoute.route, displayRoute.directionId)
                 Toast.makeText(
                     context,
@@ -194,7 +210,7 @@ class RutasFragment : Fragment() {
             val variantRoutes = routes.filterNot { mainRoutes.contains(it) }
                 .sortedBy { it.route.shortName }
 
-            val adapter = RutasAdapter(mainRoutes, variantRoutes, onItemClick = { displayRoute ->
+            val adapter = RutasAdapter(mainRoutes, variantRoutes, currentStopId, currentStopLocation, currentEntities, onItemClick = { displayRoute ->
                 routeDrawer?.drawRoute(displayRoute.route, displayRoute.directionId)
                 (activity as? MainActivity)?.showRouteDetail(
                     displayRoute.route.routeId,
@@ -210,19 +226,30 @@ class RutasFragment : Fragment() {
         }
     }
 
+    // RESULTADOS (Con tiempos)
     private fun showFilteredList(filteredRoutes: List<DisplayRouteInfo>) {
         isShowingList = true
         btnVolver.visibility = View.VISIBLE
         txtTitulo.text = "Resultados"
 
-        val sorted = filteredRoutes.sortedWith(compareBy({
-            it.route.shortName.filter { c -> c.isDigit() }.toIntOrNull() ?: Int.MAX_VALUE
-        }, { it.route.shortName }))
+        // Recuperamos ID, Ubicación y Datos en vivo para calcular tiempos
+        val currentStopId = sharedViewModel.selectedStopId.value
+        val currentStopLocation = if (currentStopId != null) GtfsDataManager.stops[currentStopId]?.location else null
+        val currentEntities = sharedViewModel.feedMessage.value?.entityList
 
-        val adapter = RutasAdapter(sorted, emptyList(), onItemClick = {
-            routeDrawer?.drawRoute(it.route, it.directionId)
-            (activity as? MainActivity)?.showRouteDetail(it.route.routeId, it.directionId)
-        })
+        val adapter = RutasAdapter(
+            filteredRoutes.sortedWith(compareBy({
+                it.route.shortName.filter { c -> c.isDigit() }.toIntOrNull() ?: Int.MAX_VALUE
+            }, { it.route.shortName })),
+            emptyList(),
+            currentStopId,       // ID del paradero (para predicción API)
+            currentStopLocation, // Ubicación (para respaldo GPS)
+            currentEntities,     // Datos en vivo
+            onItemClick = {
+                routeDrawer?.drawRoute(it.route, it.directionId)
+                (activity as? MainActivity)?.showRouteDetail(it.route.routeId, it.directionId)
+            }
+        )
         recyclerView.adapter = adapter
     }
 
@@ -232,9 +259,14 @@ class RutasFragment : Fragment() {
     }
 }
 
+// --- ADAPTADOR INTELIGENTE (Híbrido API/GPS) ---
+
 class RutasAdapter(
     private var mainRoutes: List<DisplayRouteInfo>,
     private var variantRoutes: List<DisplayRouteInfo>,
+    private val currentStopId: String?,       // ID para buscar en tripUpdate
+    private val currentStopLocation: LatLng?, // LatLng para calcular distancia GPS
+    private var feedEntities: List<GtfsRealtime.FeedEntity>?,
     private val onItemClick: (DisplayRouteInfo) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
@@ -270,11 +302,17 @@ class RutasAdapter(
         notifyDataSetChanged()
     }
 
+    fun updateRealtimeData(newEntities: List<GtfsRealtime.FeedEntity>?) {
+        this.feedEntities = newEntities
+        notifyDataSetChanged()
+    }
+
     class RutaVH(v: View) : RecyclerView.ViewHolder(v) {
         val icono: ImageView = v.findViewById(R.id.icono_ruta)
         val linea: TextView = v.findViewById(R.id.nombre_linea)
         val recorrido: TextView = v.findViewById(R.id.nombre_recorrido)
         val favBtn: ImageButton = v.findViewById(R.id.btn_favorite_paradero)
+        val txtTiempo: TextView = v.findViewById(R.id.txt_tiempo_espera)
 
         val cardView = v as? MaterialCardView
         val defaultColor: ColorStateList? = cardView?.cardBackgroundColor
@@ -320,31 +358,44 @@ class RutasAdapter(
                 if (position < mainRoutes.size) mainRoutes[position] else variantRoutes[position - mainRoutes.size - 1]
             val route = item.route
 
-            // --- LÓGICA DE SELECCIÓN ---
             if (holder.cardView != null) {
                 if (route.routeId == selectedRouteId) {
-                    // CAMBIO: Color VERDE Claro (#C8E6C9)
                     holder.cardView.setCardBackgroundColor(Color.parseColor("#C8E6C9"))
                 } else {
                     holder.cardView.setCardBackgroundColor(holder.defaultColor)
                 }
             } else {
-                if (route.routeId == selectedRouteId) holder.itemView.setBackgroundColor(
-                    Color.parseColor(
-                        "#C8E6C9"
-                    )
-                )
+                if (route.routeId == selectedRouteId) holder.itemView.setBackgroundColor(Color.parseColor("#C8E6C9"))
                 else holder.itemView.setBackgroundColor(Color.TRANSPARENT)
             }
-            // ---------------------------
 
             if (route.shortName == "Rural") {
                 holder.linea.text = "Rural"
                 holder.icono.setImageResource(R.drawable.ic_bus)
+                holder.txtTiempo.visibility = View.GONE
             } else {
                 holder.linea.text =
                     if (route.shortName.startsWith("13")) "Línea 13" else "Línea ${route.shortName}"
                 holder.icono.setImageResource(getIconForRoute(route.routeId))
+
+                // === LÓGICA DE TIEMPO ===
+                val tiempoStr = obtenerTiempoLlegada(route.routeId, item.directionId)
+
+                if (tiempoStr != null) {
+                    holder.txtTiempo.visibility = View.VISIBLE
+                    holder.txtTiempo.text = tiempoStr
+
+                    // Colores
+                    if (tiempoStr == "Llegando" || (tiempoStr.contains("min") && (tiempoStr.split(" ")[0].toIntOrNull() ?: 99) <= 5)) {
+                        holder.txtTiempo.setTextColor(Color.parseColor("#4CAF50")) // Verde
+                    } else if (tiempoStr.contains("min") && (tiempoStr.split(" ")[0].toIntOrNull() ?: 99) <= 15) {
+                        holder.txtTiempo.setTextColor(Color.parseColor("#FF9800")) // Naranja
+                    } else {
+                        holder.txtTiempo.setTextColor(Color.GRAY)
+                    }
+                } else {
+                    holder.txtTiempo.visibility = View.GONE
+                }
             }
             holder.recorrido.text = route.longName
 
@@ -364,6 +415,89 @@ class RutasAdapter(
                 }
             }
         }
+    }
+
+    // Función principal que decide qué tiempo mostrar
+    private fun obtenerTiempoLlegada(routeId: String, directionId: Int): String? {
+        // Si no hay datos básicos, no hacemos nada (ej. lista general)
+        if (currentStopLocation == null && currentStopId == null) return null
+        if (feedEntities == null) return null
+
+        // 1. INTENTO DE PREDICCIÓN EXACTA (GTFS-RT tripUpdate)
+        // Buscamos si la API nos dice a qué hora llega esta micro a este paradero
+        if (currentStopId != null) {
+            val prediccion = buscarPrediccionEnApi(routeId, directionId, currentStopId)
+            if (prediccion != null) return prediccion
+        }
+
+        // 2. FALLBACK: CÁLCULO GPS (Distancia lineal)
+        // Si la API no traía predicción, calculamos distancia aproximada
+        if (currentStopLocation != null) {
+            return calcularTiempoGPS(routeId, directionId, currentStopLocation)
+        }
+
+        return null
+    }
+
+    private fun buscarPrediccionEnApi(routeId: String, directionId: Int, stopId: String): String? {
+        val nowSeconds = System.currentTimeMillis() / 1000
+
+        // Filtramos entidades que tengan TripUpdate para esta ruta
+        val tripUpdates = feedEntities!!.filter {
+            it.hasTripUpdate() &&
+                    it.tripUpdate.trip.routeId == routeId &&
+                    it.tripUpdate.trip.directionId == directionId
+        }
+
+        for (entity in tripUpdates) {
+            val stopUpdates = entity.tripUpdate.stopTimeUpdateList
+            // Buscamos nuestro paradero en la lista de paradas futuras de ese viaje
+            val match = stopUpdates.find { it.stopId == stopId && it.hasArrival() }
+
+            if (match != null) {
+                val arrivalTime = match.arrival.time
+                val diffMinutes = (arrivalTime - nowSeconds) / 60
+                return if (diffMinutes <= 0) "Llegando" else "$diffMinutes min"
+            }
+        }
+        return null
+    }
+
+    private fun calcularTiempoGPS(routeId: String, directionId: Int, stopLocation: LatLng): String? {
+        // Filtramos buses con posición GPS
+        val busesDeLaLinea = feedEntities!!.filter {
+            it.hasVehicle() &&
+                    it.vehicle.hasTrip() &&
+                    it.vehicle.trip.routeId == routeId &&
+                    it.vehicle.trip.directionId == directionId
+        }
+
+        if (busesDeLaLinea.isEmpty()) return null
+
+        val busMasCercano = busesDeLaLinea.minByOrNull { entity ->
+            val pos = entity.vehicle.position
+            val results = FloatArray(1)
+            Location.distanceBetween(
+                pos.latitude.toDouble(), pos.longitude.toDouble(),
+                stopLocation.latitude, stopLocation.longitude,
+                results
+            )
+            results[0]
+        } ?: return null
+
+        val pos = busMasCercano.vehicle.position
+        val results = FloatArray(1)
+        Location.distanceBetween(
+            pos.latitude.toDouble(), pos.longitude.toDouble(),
+            stopLocation.latitude, stopLocation.longitude,
+            results
+        )
+        val distanciaMetros = results[0]
+
+        if (distanciaMetros > 20000) return null // Muy lejos
+
+        val tiempoMinutos = (distanciaMetros / 416).toInt() // 25 km/h aprox
+        return if (tiempoMinutos <= 0) "Llegando" else "$tiempoMinutos min"
     }
 
     override fun getItemCount(): Int =
