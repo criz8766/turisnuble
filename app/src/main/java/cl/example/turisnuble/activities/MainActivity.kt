@@ -102,8 +102,13 @@ import retrofit2.Retrofit
 import retrofit2.converter.protobuf.ProtoConverterFactory
 import java.io.IOException
 
-// --- ### Y ELIMINA CUALQUIER OTRA import org.maplibre.android.style.expressions... ### ---
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
 
 class MainActivity : AppCompatActivity(),
     OnMapReadyCallback,
@@ -148,6 +153,8 @@ class MainActivity : AppCompatActivity(),
     private var peekHeightInPixels: Int = 0
 
     private var currentInfoMarker: Marker? = null
+
+    private var currentRouteArrowLayerId: String? = null
 
     // --- ID DEL BUS QUE ESTAMOS SIGUIENDO (Simple) ---
     private var trackedBusId: String? = null
@@ -215,6 +222,7 @@ class MainActivity : AppCompatActivity(),
 
 
     // --- LÓGICA DE "CÓMO LLEGAR" (SIN CAMBIOS) ---
+    // 1. CÓMO LLEGAR (Mantiene la Tarjeta de Viaje con hora estimada)
     override fun onGetDirectionsToStop(stop: GtfsStop) {
         if (ContextCompat.checkSelfPermission(
                 this,
@@ -247,14 +255,11 @@ class MainActivity : AppCompatActivity(),
 
                 val userLat = location.latitude
                 val userLon = location.longitude
-                val destLat = stop.location.latitude
-                val destLon = stop.location.longitude
 
                 // 1. Búsqueda con radio flexible para el usuario (Origen A)
-                val originSearchRadii = listOf(500f, 1000f, 2500f) // 500m, 1km, 2.5km
-                var stopsNearA: List<Pair<GtfsStop, Float>> = emptyList() // Guardamos la distancia
+                val originSearchRadii = listOf(500f, 1000f, 2500f)
+                var stopsNearA: List<Pair<GtfsStop, Float>> = emptyList()
 
-                Log.d("Directions", "Iniciando búsqueda de paraderos (A)...")
                 for (radius in originSearchRadii) {
                     stopsNearA = GtfsDataManager.stops.values
                         .map { s ->
@@ -269,24 +274,14 @@ class MainActivity : AppCompatActivity(),
                             )
                         }
                         .filter { it.second <= radius }
-                        .sortedBy { it.second } // Ordenados por distancia
-                    if (stopsNearA.isNotEmpty()) {
-                        Log.d(
-                            "Directions",
-                            "Paraderos (A) encontrados a ${radius}m (${stopsNearA.size} paraderos)"
-                        )
-                        break
-                    }
+                        .sortedBy { it.second }
+                    if (stopsNearA.isNotEmpty()) break
                 }
 
                 if (stopsNearA.isEmpty()) {
-                    Log.w(
-                        "Directions",
-                        "No se encontraron paraderos (A) cerca del usuario (radio max ${originSearchRadii.last()}m)"
-                    )
                     Toast.makeText(
                         this,
-                        "No se encontraron paraderos cercanos a tu ubicación (radio max 2.5km)",
+                        "No se encontraron paraderos cercanos a tu ubicación",
                         Toast.LENGTH_LONG
                     ).show()
                     return@addOnSuccessListener
@@ -294,42 +289,31 @@ class MainActivity : AppCompatActivity(),
 
                 // 2. Búsqueda con radio flexible para el destino (Destino B)
                 val destSearchRadii = listOf(500f, 1000f, 2500f)
-                var stopsNearB: List<Pair<GtfsStop, Float>> = emptyList() // Guardamos la distancia
+                var stopsNearB: List<Pair<GtfsStop, Float>> = emptyList()
 
-                Log.d("Directions", "Iniciando búsqueda de paraderos (B) cerca de ${stop.name}...")
                 for (radius in destSearchRadii) {
                     stopsNearB = GtfsDataManager.stops.values
                         .map { s ->
                             Pair(
                                 s,
                                 distanceBetween(
-                                    destLat,
-                                    destLon,
+                                    stop.location.latitude,
+                                    stop.location.longitude,
                                     s.location.latitude,
                                     s.location.longitude
                                 )
                             )
                         }
                         .filter { it.second <= radius }
-                        .sortedBy { it.second } // Ordenados por distancia
-                    if (stopsNearB.isNotEmpty()) {
-                        Log.d(
-                            "Directions",
-                            "Paraderos (B) encontrados a ${radius}m del destino (${stopsNearB.size} paraderos)"
-                        )
-                        break
-                    }
+                        .sortedBy { it.second }
+                    if (stopsNearB.isNotEmpty()) break
                 }
 
                 if (stopsNearB.isEmpty()) {
-                    stopsNearB = listOf(Pair(stop, 0f)) // Failsafe
-                    Log.w(
-                        "Directions",
-                        "No se encontraron paraderos cercanos a ${stop.name}, usando solo el paradero exacto."
-                    )
+                    stopsNearB = listOf(Pair(stop, 0f))
                 }
 
-                // 3. Lógica de búsqueda mejorada
+                // 3. Lógica de búsqueda de rutas comunes
                 val validRoutes = mutableListOf<Triple<DisplayRouteInfo, GtfsStop, GtfsStop>>()
                 var commonRoutesFound = false
 
@@ -360,20 +344,15 @@ class MainActivity : AppCompatActivity(),
                             val indexA = stopSequence.indexOfFirst { it.stopId == stopA.stopId }
                             val indexB = stopSequence.indexOfFirst { it.stopId == stopB.stopId }
 
-                            if (indexA != -1 && indexB != -1 && indexA < indexB) { // Valida A -> B
+                            if (indexA != -1 && indexB != -1 && indexA < indexB) {
                                 validRoutes.add(Triple(commonRoute, stopA, stopB))
                             }
                         }
                     }
                 }
 
-                // 4. Seleccionar la mejor ruta
+                // 4. Seleccionar la mejor ruta y mostrar tarjeta
                 if (validRoutes.isNotEmpty()) {
-                    Log.d(
-                        "Directions",
-                        "Se encontraron ${validRoutes.size} rutas válidas. Seleccionando la 'mejor'..."
-                    )
-
                     val bestOption = validRoutes.minByOrNull { (_, stopA, stopB) ->
                         val distA = stopsNearA.find { it.first.stopId == stopA.stopId }?.second
                             ?: Float.MAX_VALUE
@@ -385,26 +364,30 @@ class MainActivity : AppCompatActivity(),
                     val bestRouteFound = bestOption.first
                     val bestStopA = bestOption.second
                     val bestStopB = bestOption.third
-
                     val route = bestRouteFound.route
-                    val directionId = bestRouteFound.directionId
 
-                    Log.d(
-                        "Directions",
-                        "MEJOR RUTA: ${route.shortName} (Desde ${bestStopA.name} a ${bestStopB.name})"
-                    )
+                    // Calcular duración y hora estimada
+                    val duracionMin = calcularDuracionEstimada(bestStopA, bestStopB)
+                    val arrivalCalendar = Calendar.getInstance()
+                    arrivalCalendar.add(Calendar.MINUTE, duracionMin)
+                    val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+                    val horaLlegada = sdf.format(arrivalCalendar.time)
 
-                    val toastMessage = if (bestStopB.stopId == stop.stopId) {
-                        "Toma la Línea ${route.shortName} en ${bestStopA.name}"
-                    } else {
-                        "Toma la Línea ${route.shortName} en ${bestStopA.name} y baja en ${bestStopB.name}"
-                    }
-                    //Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
-                    showCustomNotification(toastMessage)
-
-                    hideDetailFragment()
-                    drawRouteSegment(route, directionId, bestStopA, bestStopB)
-                    sharedViewModel.selectStop(bestStopA.stopId)
+                    AlertDialog.Builder(this)
+                        .setTitle("¡Ruta Encontrada! \uD83D\uDE8C")
+                        .setMessage(
+                            "Toma la Línea ${route.shortName} en: \n${bestStopA.name}\n\n" +
+                                    "⏱️ Tiempo de viaje aprox: $duracionMin min\n" +
+                                    "\uD83C\uDFC1 Hora llegada estimada: $horaLlegada\n\n" +
+                                    "Baja en: ${bestStopB.name}"
+                        )
+                        .setPositiveButton("Ver en Mapa") { _, _ ->
+                            hideDetailFragment()
+                            drawRouteSegment(route, bestRouteFound.directionId, bestStopA, bestStopB)
+                            sharedViewModel.selectStop(bestStopA.stopId)
+                        }
+                        .setNegativeButton("Cancelar", null)
+                        .show()
 
                 } else {
                     val toastMessage = if (commonRoutesFound) {
@@ -412,9 +395,7 @@ class MainActivity : AppCompatActivity(),
                     } else {
                         "No se encontró una ruta de micro directa en los paraderos cercanos"
                     }
-                    //Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show()
                     showCustomNotification(toastMessage)
-                    Log.d("Directions", "No se encontró NINGUNA ruta válida A -> B.")
                 }
             }
             .addOnFailureListener {
@@ -702,6 +683,80 @@ class MainActivity : AppCompatActivity(),
 
     // --- FUNCIONES PARA EL FILTRO DE CAPAS ---
 
+    // --- NUEVO: Calcula duración estimada para la tarjeta de viaje ---
+    private fun calcularDuracionEstimada(stopA: GtfsStop, stopB: GtfsStop): Int {
+        // Distancia lineal
+        val distancia = distanceBetween(
+            stopA.location.latitude, stopA.location.longitude,
+            stopB.location.latitude, stopB.location.longitude
+        )
+        // Factor de corrección (1.4x) para aproximar la distancia real por calle
+        val distanciaRealAprox = distancia * 1.4
+
+        // Velocidad promedio micro: ~20 km/h = ~333 metros/min
+        return (distanciaRealAprox / 333).toInt().coerceAtLeast(2) // Mínimo 2 min
+    }
+
+    // --- NUEVO: Obtiene predicción para el globo del mapa ---
+    // --- NUEVO: Obtiene predicción (CON VALIDACIÓN DE RUTA) ---
+    // --- NUEVO: Obtiene predicción (CON VALIDACIÓN "YA PASÓ") ---
+    private fun obtenerPrediccionTiempoReal(routeId: String, directionId: Int, vehicleLat: Double, vehicleLon: Double): String? {
+        val stopId = currentSelectedStopId ?: return null
+        val stop = GtfsDataManager.stops[stopId] ?: return null
+
+        // 1. VALIDACIÓN DE RUTA: ¿Esta micro pasa por aquí?
+        val paraderosDeLaRuta = GtfsDataManager.getStopsForRoute(routeId, directionId)
+        if (paraderosDeLaRuta.none { it.stopId == stopId }) return null
+
+        // 2. INTENTO POR API (TripUpdate)
+        val nowSeconds = System.currentTimeMillis() / 1000
+        val updates = lastFeedMessage?.entityList?.filter {
+            it.hasTripUpdate() && it.tripUpdate.trip.routeId == routeId && it.tripUpdate.trip.directionId == directionId
+        } ?: emptyList()
+
+        for (entity in updates) {
+            val stopUpdate = entity.tripUpdate.stopTimeUpdateList.find { it.stopId == stopId && it.hasArrival() }
+            if (stopUpdate != null) {
+                val diff = (stopUpdate.arrival.time - nowSeconds) / 60
+
+                // MEJORA: Si la predicción es muy antigua (hace más de 2 min), asumimos que ya pasó
+                if (diff < -2) return null
+
+                return if (diff <= 0) "Llegando" else "$diff min"
+            }
+        }
+
+        // 3. FALLBACK GPS: Cálculo geométrico sobre el trazado
+        val trip = GtfsDataManager.trips.values.find { it.routeId == routeId && it.directionId == directionId }
+        val shapePoints = GtfsDataManager.shapes[trip?.shapeId]
+
+        if (shapePoints != null && shapePoints.isNotEmpty()) {
+            // Buscamos en qué "índice" del camino está el paradero
+            // (Nota: Esto podría optimizarse guardándolo en memoria, pero para pocos buses está bien)
+            val stopIndex = findNearestShapePointIndex(shapePoints, stop)
+
+            // Buscamos en qué "índice" del camino está el Bus
+            val busLocation = GtfsStop("bus_temp", "bus", LatLng(vehicleLat, vehicleLon)) // Wrapper temporal
+            val busIndex = findNearestShapePointIndex(shapePoints, busLocation)
+
+            // ¡AQUÍ ESTÁ LA MAGIA!
+            // Si el bus va en el punto 100 y el paradero es el 80... ya pasó.
+            if (busIndex > stopIndex) {
+                return null
+            }
+        }
+
+        // Si pasó las pruebas, calculamos la distancia final
+        val results = FloatArray(1)
+        Location.distanceBetween(vehicleLat, vehicleLon, stop.location.latitude, stop.location.longitude, results)
+        val dist = results[0]
+
+        if (dist > 20000) return null
+
+        val time = (dist / 416).toInt()
+        return if (time <= 0) "Llegando" else "$time min"
+    }
+
     private fun showLayerFilterDialog() {
         val builder = AlertDialog.Builder(this)
         builder.setTitle("Filtrar Mapa")
@@ -812,12 +867,12 @@ class MainActivity : AppCompatActivity(),
     }
 
 
+    // 2. CLIC EN EL BUS (Limpio: Solo Línea y Patente)
     private fun handleBusClick(feature: Feature) {
         val geometry = feature.geometry() as? Point ?: return
         val clickLat = geometry.latitude()
         val clickLon = geometry.longitude()
 
-        // --- 1. BUSCAR EL BUS REAL EN LOS DATOS CRUDOS ---
         val feed = lastFeedMessage
         var foundBusId: String? = null
         var foundRouteId: String? = null
@@ -825,7 +880,6 @@ class MainActivity : AppCompatActivity(),
         var foundLicensePlate: String? = null
 
         if (feed != null) {
-            // Buscamos el bus que esté "casi en el mismo lugar" del clic (radio pequeño)
             val closestEntity = feed.entityList
                 .filter { it.hasVehicle() && it.vehicle.hasPosition() }
                 .minByOrNull { entity ->
@@ -838,17 +892,13 @@ class MainActivity : AppCompatActivity(),
                         pos.longitude.toDouble(),
                         results
                     )
-                    results[0] // Distancia en metros
+                    results[0]
                 }
 
-            // Si encontramos uno a menos de 50 metros aprox, ¡ese es!
             if (closestEntity != null) {
                 val v = closestEntity.vehicle
-
-                // Definimos el ID ÚNICO directamente de la fuente
                 foundBusId =
                     if (v.hasVehicle() && v.vehicle.hasId()) v.vehicle.id else v.trip.tripId
-
                 foundRouteId = v.trip.routeId
                 foundDirectionId = v.trip.directionId
                 if (v.hasVehicle() && v.vehicle.hasLicensePlate()) {
@@ -857,26 +907,21 @@ class MainActivity : AppCompatActivity(),
             }
         }
 
-        // Si no encontramos match, salimos
         if (foundBusId == null || foundRouteId == null) return
 
-        // --- 2. EMPEZAR EL SEGUIMIENTO ---
         trackedBusId = foundBusId
-        // --------------------------------
 
-        // 3. Dibujar ruta y globo
         val route = GtfsDataManager.routes[foundRouteId] ?: return
-
-        // Si la ruta del bus no es la que ya está dibujada, la dibujamos
         if (selectedRouteId != foundRouteId) {
-            // ¡TRUCO! Activamos el bloqueo de zoom para que drawRoute NO aleje la cámara
             preventRouteZoom = true
             drawRoute(route, foundDirectionId ?: 0)
-            preventRouteZoom = false // Desactivamos el bloqueo
+            preventRouteZoom = false
         }
 
         val directionStr = if (foundDirectionId == 0) "Ida" else "Vuelta"
         val infoTitle = "Línea ${route.shortName} ($directionStr)"
+
+        // Volvemos al snippet simple sin tiempos confusos
         val infoSnippet =
             if (!foundLicensePlate.isNullOrBlank()) "Patente: $foundLicensePlate" else "Patente no disponible"
 
@@ -884,10 +929,8 @@ class MainActivity : AppCompatActivity(),
         val transparentIcon =
             iconFactory.fromBitmap(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888))
 
-        // Borramos marcador anterior si existía
         currentInfoMarker?.let { map.removeMarker(it) }
 
-        // Creamos el nuevo marcador invisible en la posición exacta del clic
         currentInfoMarker = map.addMarker(
             MarkerOptions()
                 .position(LatLng(clickLat, clickLon))
@@ -896,11 +939,7 @@ class MainActivity : AppCompatActivity(),
                 .icon(transparentIcon)
         )
 
-        // Abrimos el globo
         map.selectMarker(currentInfoMarker!!)
-
-        // --- 4. CENTRAR CÁMARA EN EL BUS (ZOOM IN) ---
-        // Aquí forzamos al mapa a acercarse al bus que acabamos de tocar
         map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(clickLat, clickLon), 16.0), 1000)
     }
 
@@ -1233,112 +1272,85 @@ class MainActivity : AppCompatActivity(),
     // --- FUNCIÓN: Carga TODOS los iconos ---
     private fun loadMapIcons(style: Style) {
         try {
-            // --- PARADEROS ---
-            style.addImage(
-                "paradero-icon",
-                BitmapFactory.decodeResource(resources, R.drawable.ic_paradero)
-            )
-            style.addImage(
-                "paradero-icon-selected",
-                BitmapFactory.decodeResource(resources, R.drawable.ic_paradero_selected)
-            )
-            try {
-                style.addImage(
-                    "paradero-icon-finish",
-                    BitmapFactory.decodeResource(resources, R.drawable.ic_paradero_finish)
-                )
-            } catch (e: Exception) {
-                Log.e("LoadIcons", "Error cargando ic_paradero_finish", e)
-            }
+            // --- 1. Generar Flecha de Dirección (CORREGIDO) ---
+            val arrowBitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(arrowBitmap)
 
-            // --- TURISMO (CON LÓGICA DE SELECCIÓN) ---
+            // Configuración explícita del pincel de borde (outline)
+            val paintOutline = Paint()
+            paintOutline.color = Color.BLACK
+            paintOutline.style = android.graphics.Paint.Style.STROKE // Ruta completa para evitar error
+            paintOutline.strokeWidth = 22f
+            paintOutline.strokeCap = Paint.Cap.ROUND
+            paintOutline.strokeJoin = Paint.Join.ROUND
+            paintOutline.isAntiAlias = true
+
+            // Definimos la forma de la flecha (Un chevron >)
+            val path = Path().apply {
+                moveTo(25f, 20f)
+                lineTo(75f, 50f)
+                lineTo(25f, 80f)
+            }
+            canvas.drawPath(path, paintOutline)
+
+            // Configuración explícita del pincel de relleno (fill)
+            val paintFill = Paint()
+            paintFill.color = Color.WHITE
+            paintFill.style = android.graphics.Paint.Style.STROKE // Ruta completa
+            paintFill.strokeWidth = 12f
+            paintFill.strokeCap = Paint.Cap.ROUND
+            paintFill.strokeJoin = Paint.Join.ROUND
+            paintFill.isAntiAlias = true
+
+            canvas.drawPath(path, paintFill)
+
+            style.addImage("route-arrow", arrowBitmap)
+            // -----------------------------------------------------
+
+            // --- 2. Cargar Iconos de Paraderos ---
+            style.addImage("paradero-icon", BitmapFactory.decodeResource(resources, R.drawable.ic_paradero))
+            style.addImage("paradero-icon-selected", BitmapFactory.decodeResource(resources, R.drawable.ic_paradero_selected))
+            try { style.addImage("paradero-icon-finish", BitmapFactory.decodeResource(resources, R.drawable.ic_paradero_finish)) } catch (e: Exception) {}
+
+            // --- 3. Cargar Iconos de Turismo ---
             try {
-                // Icono Normal
                 val turismoBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_turismo)
                 val scaledTurismo = Bitmap.createScaledBitmap(turismoBitmap, 80, 80, false)
                 style.addImage("turismo-icon", scaledTurismo)
 
-                // Icono Seleccionado
-                val turismoSelectedBitmap =
-                    BitmapFactory.decodeResource(resources, R.drawable.ic_turismo_selected)
-                // Un poco más grande para destacar (90x90)
-                val scaledTurismoSelected =
-                    Bitmap.createScaledBitmap(turismoSelectedBitmap, 90, 90, false)
+                val turismoSelectedBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_turismo_selected)
+                val scaledTurismoSelected = Bitmap.createScaledBitmap(turismoSelectedBitmap, 90, 90, false)
                 style.addImage("turismo-icon-selected", scaledTurismoSelected)
-            } catch (e: Exception) {
-                Log.e("LoadIcons", "Error cargando ic_turismo", e)
-            }
+            } catch (e: Exception) { Log.e("LoadIcons", "Error cargando ic_turismo", e) }
 
-            // --- BUSES (DEFAULT) ---
+            // --- 4. Cargar Iconos de Buses ---
             val originalBusBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_bus)
             val scaledBusBitmap = Bitmap.createScaledBitmap(originalBusBitmap, 60, 60, false)
             style.addImage("bus-icon-default-normal", scaledBusBitmap)
 
             try {
-                val originalBusEspejo =
-                    BitmapFactory.decodeResource(resources, R.drawable.ic_bus_espejo)
+                val originalBusEspejo = BitmapFactory.decodeResource(resources, R.drawable.ic_bus_espejo)
                 val scaledBusEspejo = Bitmap.createScaledBitmap(originalBusEspejo, 60, 60, false)
                 style.addImage("bus-icon-default-espejo", scaledBusEspejo)
-            } catch (e: Exception) {
-                Log.e("LoadIcons", "Error ic_bus_espejo", e)
-            }
+            } catch (e: Exception) { Log.e("LoadIcons", "Error ic_bus_espejo", e) }
 
-            // --- BUSES (POR LÍNEA) ---
             val routeIcons = mapOf(
-                "467" to R.drawable.linea_2,
-                "468" to R.drawable.linea_3,
-                "469" to R.drawable.linea_4,
-                "470" to R.drawable.linea_6,
-                "471" to R.drawable.linea_7,
-                "472" to R.drawable.linea_8,
-                "954" to R.drawable.linea_7,
-                "478" to R.drawable.linea_14,
-                "477" to R.drawable.linea_14,
-                "473" to R.drawable.linea_10,
-                "476" to R.drawable.linea_13,
-                "474" to R.drawable.linea_13,
-                "475" to R.drawable.linea_13,
-                "466" to R.drawable.linea_1
+                "467" to R.drawable.linea_2, "468" to R.drawable.linea_3, "469" to R.drawable.linea_4,
+                "470" to R.drawable.linea_6, "471" to R.drawable.linea_7, "472" to R.drawable.linea_8,
+                "954" to R.drawable.linea_7, "478" to R.drawable.linea_14, "477" to R.drawable.linea_14,
+                "473" to R.drawable.linea_10, "476" to R.drawable.linea_13, "474" to R.drawable.linea_13,
+                "475" to R.drawable.linea_13, "466" to R.drawable.linea_1
             )
-
             val routeIconsEspejo = mapOf(
-                "467" to R.drawable.linea_2_espejo,
-                "468" to R.drawable.linea_3_espejo,
-                "469" to R.drawable.linea_4_espejo,
-                "470" to R.drawable.linea_6_espejo,
-                "471" to R.drawable.linea_7_espejo,
-                "472" to R.drawable.linea_8_espejo,
-                "954" to R.drawable.linea_7_espejo,
-                "478" to R.drawable.linea_14_espejo,
-                "477" to R.drawable.linea_14_espejo,
-                "473" to R.drawable.linea_10_espejo,
-                "476" to R.drawable.linea_13_espejo,
-                "474" to R.drawable.linea_13_espejo,
-                "475" to R.drawable.linea_13_espejo,
-                "466" to R.drawable.linea_1_espejo
+                "467" to R.drawable.linea_2_espejo, "468" to R.drawable.linea_3_espejo, "469" to R.drawable.linea_4_espejo,
+                "470" to R.drawable.linea_6_espejo, "471" to R.drawable.linea_7_espejo, "472" to R.drawable.linea_8_espejo,
+                "954" to R.drawable.linea_7_espejo, "478" to R.drawable.linea_14_espejo, "477" to R.drawable.linea_14_espejo,
+                "473" to R.drawable.linea_10_espejo, "476" to R.drawable.linea_13_espejo, "474" to R.drawable.linea_13_espejo,
+                "475" to R.drawable.linea_13_espejo, "466" to R.drawable.linea_1_espejo
             )
 
-            // Cargar Iconos Normales
-            routeIcons.forEach { (routeId, resourceId) ->
-                try {
-                    val bmp = BitmapFactory.decodeResource(resources, resourceId)
-                    val scaledBmp = Bitmap.createScaledBitmap(bmp, 60, 60, false)
-                    style.addImage("bus-icon-$routeId-normal", scaledBmp)
-                } catch (e: Exception) {
-                    Log.e("LoadIcons", "Error icono ruta $routeId: ${e.message}")
-                }
-            }
-
-            // Cargar Iconos Espejo
-            routeIconsEspejo.forEach { (routeId, resourceId) ->
-                try {
-                    val bmp = BitmapFactory.decodeResource(resources, resourceId)
-                    val scaledBmp = Bitmap.createScaledBitmap(bmp, 60, 60, false)
-                    style.addImage("bus-icon-$routeId-espejo", scaledBmp)
-                } catch (e: Exception) {
-                    Log.e("LoadIcons", "Error icono espejo $routeId: ${e.message}")
-                }
-            }
+            routeIcons.forEach { (id, res) -> try { style.addImage("bus-icon-$id-normal", Bitmap.createScaledBitmap(BitmapFactory.decodeResource(resources, res), 60, 60, false)) } catch (e: Exception) {} }
+            routeIconsEspejo.forEach { (id, res) -> try { style.addImage("bus-icon-$id-espejo", Bitmap.createScaledBitmap(BitmapFactory.decodeResource(resources, res), 60, 60, false)) } catch (e: Exception) {} }
 
         } catch (e: Exception) {
             Log.e("LoadIcons", "Error cargando íconos base", e)
@@ -1762,12 +1774,13 @@ class MainActivity : AppCompatActivity(),
         clearDrawnElements()
         selectedRouteId = route.routeId
         selectedDirectionId = directionId
-        currentDestinationStopId = null // Limpiar destino al dibujar ruta completa
+        currentDestinationStopId = null
+
+        locationButtonState = 1
+        locationFab.setImageResource(R.drawable.ic_close)
 
         val style = mapStyle ?: return
-
-        val trip =
-            GtfsDataManager.trips.values.find { it.routeId == route.routeId && it.directionId == directionId }
+        val trip = GtfsDataManager.trips.values.find { it.routeId == route.routeId && it.directionId == directionId }
         val shapeId = trip?.shapeId
 
         if (shapeId == null) {
@@ -1776,8 +1789,7 @@ class MainActivity : AppCompatActivity(),
         }
         val routePoints = GtfsDataManager.shapes[shapeId] ?: return
 
-        val geoJsonString =
-            """{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [${routePoints.joinToString { "[${it.longitude},${it.latitude}]" }}]}}"""
+        val geoJsonString = """{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [${routePoints.joinToString { "[${it.longitude},${it.latitude}]" }}]}}"""
 
         val sourceId = "route-source-${route.routeId}-$directionId"
         if (style.getSource(sourceId) == null) {
@@ -1785,20 +1797,18 @@ class MainActivity : AppCompatActivity(),
         }
         currentRouteSourceId = sourceId
 
-        // --- 1. CAPA DEL BORDE (CASING) ---
+        // 1. Capa Borde (Casing)
         val casingLayerId = "route-layer-casing-${route.routeId}-$directionId"
         if (style.getLayer(casingLayerId) == null) {
             val casingLayer = LineLayer(casingLayerId, sourceId).apply {
                 withProperties(
-                    PropertyFactory.lineColor(Color.WHITE), // Borde blanco
+                    PropertyFactory.lineColor(Color.WHITE),
                     PropertyFactory.lineWidth(9f),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
                 )
             }
-            // Insertar debajo de capas de iconos
-            val belowLayer =
-                style.layers.find { it.id == "bus-layer" || it.id == "paradero-layer" || it.id == "paradero-clusters" }?.id
+            val belowLayer = style.layers.find { it.id == "bus-layer" || it.id == "paradero-layer" }?.id
             if (belowLayer != null) {
                 style.addLayerBelow(casingLayer, belowLayer)
             } else {
@@ -1807,7 +1817,7 @@ class MainActivity : AppCompatActivity(),
         }
         currentRouteCasingLayerId = casingLayerId
 
-        // --- 2. CAPA DE LA RUTA (INNER) ---
+        // 2. Capa Color Ruta
         val layerId = "route-layer-${route.routeId}-$directionId"
         if (style.getLayer(layerId) == null) {
             val routeLayer = LineLayer(layerId, sourceId).apply {
@@ -1818,18 +1828,34 @@ class MainActivity : AppCompatActivity(),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
                 )
             }
-            // Insertar ENCIMA del borde
             style.addLayerAbove(routeLayer, casingLayerId)
         }
         currentRouteLayerId = layerId
+
+        // 3. NUEVO: Capa de Flechas de Dirección (CORREGIDA)
+        val arrowLayerId = "route-arrow-layer-${route.routeId}"
+        if (style.getLayer(arrowLayerId) == null) {
+            val arrowLayer = SymbolLayer(arrowLayerId, sourceId).apply {
+                withProperties(
+                    PropertyFactory.iconImage("route-arrow"),
+                    // Usamos las propiedades correctas de MapLibre
+                    PropertyFactory.symbolPlacement(Property.SYMBOL_PLACEMENT_LINE),
+                    PropertyFactory.symbolSpacing(70f),
+                    PropertyFactory.iconAllowOverlap(true),
+                    PropertyFactory.iconIgnorePlacement(true),
+                    PropertyFactory.iconSize(0.6f),
+                    PropertyFactory.iconOpacity(1.0f)
+                )
+            }
+            style.addLayerAbove(arrowLayer, layerId)
+            currentRouteArrowLayerId = arrowLayerId
+        }
 
         val paraderosDeRuta = GtfsDataManager.getStopsForRoute(route.routeId, directionId)
         showParaderosOnMap(paraderosDeRuta)
 
         val bounds = LatLngBounds.Builder().includes(routePoints).build()
 
-        // --- CAMBIO CLAVE AQUÍ ---
-        // Solo hacemos zoom para ver TODA la ruta si NO estamos en modo "prevenir zoom"
         if (!preventRouteZoom) {
             map.easeCamera(CameraUpdateFactory.newLatLngBounds(bounds, 100), 1500)
         }
@@ -1872,13 +1898,16 @@ class MainActivity : AppCompatActivity(),
     private fun clearDrawnElements() {
         mapStyle?.let { style ->
             currentRouteLayerId?.let { if (style.getLayer(it) != null) style.removeLayer(it) }
-            // --- Limpiar capa de borde ---
             currentRouteCasingLayerId?.let { if (style.getLayer(it) != null) style.removeLayer(it) }
+
+            // Borrar flechas
+            currentRouteArrowLayerId?.let { if (style.getLayer(it) != null) style.removeLayer(it) }
 
             currentRouteSourceId?.let { if (style.getSource(it) != null) style.removeSource(it) }
         }
         currentRouteLayerId = null
         currentRouteCasingLayerId = null
+        currentRouteArrowLayerId = null
         currentRouteSourceId = null
     }
 
@@ -1938,6 +1967,7 @@ class MainActivity : AppCompatActivity(),
         return results[0]
     }
 
+    // 3. ACTUALIZAR MARCADORES (Limpio: Sin lógica de tiempos)
     private fun updateBusMarkers(centerLocation: Location? = null) {
         val feed = lastFeedMessage ?: return
         if (mapStyle == null || !mapStyle!!.isFullyLoaded) return
@@ -1945,7 +1975,6 @@ class MainActivity : AppCompatActivity(),
         lifecycleScope.launch(Dispatchers.Default) {
             val busFeatures = mutableListOf<Feature>()
 
-            // Variables temporales para el bus que estamos siguiendo
             var trackedBusNewPosition: LatLng? = null
             var trackedBusNewTitle: String? = null
             var trackedBusNewSnippet: String? = null
@@ -1956,22 +1985,21 @@ class MainActivity : AppCompatActivity(),
                     val trip = vehicle.trip
                     val position = vehicle.position
 
-                    // 1. Identificamos el bus
                     val thisBusId =
                         if (vehicle.hasVehicle() && vehicle.vehicle.hasId()) vehicle.vehicle.id else trip.tripId
 
-                    // 2. Si es el bus que seguimos, guardamos TODOS sus datos nuevos
+                    // Si es el bus que seguimos
                     if (trackedBusId != null && thisBusId == trackedBusId) {
                         trackedBusNewPosition =
                             LatLng(position.latitude.toDouble(), position.longitude.toDouble())
 
-                        // Reconstruimos la info para el globo
                         val route = GtfsDataManager.routes[trip.routeId]
                         val directionStr = if (trip.directionId == 0) "Ida" else "Vuelta"
                         val nombreLinea = route?.shortName ?: ""
 
                         trackedBusNewTitle = "Línea $nombreLinea ($directionStr)"
 
+                        // Snippet simple
                         trackedBusNewSnippet =
                             if (vehicle.hasVehicle() && vehicle.vehicle.hasLicensePlate()) {
                                 "Patente: ${vehicle.vehicle.licensePlate}"
@@ -1980,7 +2008,6 @@ class MainActivity : AppCompatActivity(),
                             }
                     }
 
-                    // --- Lógica de visualización de Iconos (GeoJSON) ---
                     var shouldShow = false
                     if (selectedRouteId != null) {
                         if (selectedRouteId == trip.routeId && selectedDirectionId == trip.directionId) shouldShow =
@@ -1994,7 +2021,6 @@ class MainActivity : AppCompatActivity(),
                             if (distance <= 1000) shouldShow = true
                         }
                     }
-                    // Siempre mostrar el icono del bus rastreado
                     if (trackedBusId != null && thisBusId == trackedBusId) shouldShow = true
 
                     if (shouldShow) {
@@ -2015,25 +2041,18 @@ class MainActivity : AppCompatActivity(),
             }
 
             withContext(Dispatchers.Main) {
-                // 1. Actualizar iconos visuales de los buses
                 if (mapStyle != null && mapStyle!!.isFullyLoaded) {
                     mapStyle?.getSourceAs<GeoJsonSource>("bus-source")
                         ?.setGeoJson(FeatureCollection.fromFeatures(busFeatures))
                 }
 
-                // 2. ACTUALIZACIÓN INFALIBLE DEL GLOBO
-                // Si tenemos nuevos datos del bus rastreado...
                 if (trackedBusNewPosition != null && trackedBusNewTitle != null) {
-
-                    // A. Borramos el marcador antiguo (si existe) para evitar que el globo se quede pegado
                     currentInfoMarker?.let { map.removeMarker(it) }
 
-                    // B. Creamos el icono transparente
                     val iconFactory = IconFactory.getInstance(this@MainActivity)
                     val transparentIcon =
                         iconFactory.fromBitmap(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888))
 
-                    // C. Creamos un marcador NUEVO en la posición NUEVA
                     val newMarker = map.addMarker(
                         MarkerOptions()
                             .position(trackedBusNewPosition!!)
@@ -2042,12 +2061,8 @@ class MainActivity : AppCompatActivity(),
                             .icon(transparentIcon)
                     )
 
-                    // D. Guardamos la referencia y ABRIMOS el globo inmediatamente
                     currentInfoMarker = newMarker
                     map.selectMarker(newMarker)
-
-                    // (Opcional) Si quieres que la cámara también siga al bus, descomenta esto:
-                    map.animateCamera(CameraUpdateFactory.newLatLng(trackedBusNewPosition!!))
                 }
             }
         }
