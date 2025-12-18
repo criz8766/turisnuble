@@ -3,6 +3,7 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/card_view_ruta"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginStart="16dp"
@@ -62,12 +63,28 @@
                 android:id="@+id/nombre_recorrido"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="2dp"
                 android:textSize="14sp"
                 android:textColor="?android:attr/textColorSecondary"
                 android:maxLines="2"
                 android:ellipsize="end"
                 tools:text="Agronomía - El Tejar" />
+
+            <TextView
+                android:id="@+id/txt_patente"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/bg_patente_chip"
+                android:paddingHorizontal="6dp"
+                android:paddingVertical="2dp"
+                android:text="AB-CD-12"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:textColor="#424242"
+                android:visibility="gone"
+                tools:visibility="visible" />
 
         </LinearLayout>
 
@@ -100,10 +117,7 @@
             android:src="@drawable/ic_star_border"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Marcar paradero como favorito"
-            app:tint="?attr/colorPrimary"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintBottom_toBottomOf="parent" />
+            app:tint="?attr/colorPrimary" />
 
     </LinearLayout>
 
