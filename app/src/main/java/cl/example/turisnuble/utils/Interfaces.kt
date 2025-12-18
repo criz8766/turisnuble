@@ -22,10 +22,12 @@ interface TurismoActionHandler {
 }
 
 interface DetalleTurismoNavigator {
-    fun showRoutesForStop(stopId: String)
+    fun showTurismoDetail(punto: PuntoTuristico)
     fun hideDetailFragment()
 
-    // --- AÑADE ESTA LÍNEA ---
+    // CAMBIO AQUÍ: Agregamos el parámetro opcional 'puntoOrigen'
+    fun showRoutesForStop(stopId: String, puntoOrigen: PuntoTuristico? = null)
+
     fun onGetDirectionsClicked(punto: PuntoTuristico)
 }
 

@@ -15,6 +15,7 @@ import cl.example.turisnuble.R
 import cl.example.turisnuble.data.GtfsDataManager
 import cl.example.turisnuble.data.GtfsStop
 import cl.example.turisnuble.data.SharedViewModel
+import cl.example.turisnuble.utils.DetalleTurismoNavigator // <--- IMPORTANTE
 import cl.example.turisnuble.utils.MapMover
 import com.google.android.gms.location.LocationServices
 import com.google.transit.realtime.GtfsRealtime
@@ -29,14 +30,25 @@ class RutasCercaFragment : Fragment() {
     private val sharedViewModel: SharedViewModel by activityViewModels()
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: ParaderosCercanosAdapter
+
+    // Interfaces para comunicarse con MainActivity
     private var mapMover: MapMover? = null
+    private var routeNavigator: DetalleTurismoNavigator? = null // <--- NUEVO
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
+        // 1. Conectar MapMover
         if (context is MapMover) {
             mapMover = context
         } else {
             throw RuntimeException("$context must implement MapMover")
+        }
+
+        // 2. Conectar Navegador de Rutas (Para ir a los resultados) <--- NUEVO
+        if (context is DetalleTurismoNavigator) {
+            routeNavigator = context
+        } else {
+            throw RuntimeException("$context must implement DetalleTurismoNavigator")
         }
     }
 
@@ -49,21 +61,25 @@ class RutasCercaFragment : Fragment() {
         recyclerView.layoutManager = LinearLayoutManager(context)
 
         adapter = ParaderosCercanosAdapter(emptyList()) { paraderoSeleccionado ->
-            sharedViewModel.selectStop(paraderoSeleccionado.stopId)
+            // --- LÓGICA CORREGIDA ---
+
+            // 1. Centrar mapa (Ya lo hacías)
             mapMover?.centerMapOnPoint(
                 paraderoSeleccionado.location.latitude,
                 paraderoSeleccionado.location.longitude
             )
+
+            // 2. ¡IR A LOS RESULTADOS! (Esto faltaba)
+            // Esto le dice al MainActivity: "Cambia de pestaña, muestra las rutas de este paradero"
+            routeNavigator?.showRoutesForStop(paraderoSeleccionado.stopId)
         }
         recyclerView.adapter = adapter
 
         sharedViewModel.nearbyCalculationCenter.observe(viewLifecycleOwner) {
-            // CORRECCIÓN: Pasar el feed nullable
             findNearbyStopsAndArrivals(sharedViewModel.feedMessage.value)
         }
 
         sharedViewModel.feedMessage.observe(viewLifecycleOwner) { feed ->
-            // CORRECCIÓN: Pasar el feed nullable
             findNearbyStopsAndArrivals(feed)
         }
         return view
@@ -74,7 +90,6 @@ class RutasCercaFragment : Fragment() {
         findNearbyStopsAndArrivals(sharedViewModel.feedMessage.value)
     }
 
-    // CORRECCIÓN: El parámetro ahora acepta nulos (FeedMessage?)
     private fun findNearbyStopsAndArrivals(feed: GtfsRealtime.FeedMessage?) {
         val calculationCenter = sharedViewModel.nearbyCalculationCenter.value
 
@@ -93,7 +108,6 @@ class RutasCercaFragment : Fragment() {
         }
     }
 
-    // CORRECCIÓN: El parámetro ahora acepta nulos (FeedMessage?)
     private fun calculateStops(feed: GtfsRealtime.FeedMessage?, lat: Double, lon: Double) {
         val paraderosCercanos = GtfsDataManager.stops.values
             .map { stop ->
@@ -111,7 +125,6 @@ class RutasCercaFragment : Fragment() {
         val paraderosConLlegadas = paraderosCercanos.map { paradero ->
             val llegadas = mutableListOf<LlegadaInfo>()
 
-            // CORRECCIÓN: Si feed es null, saltamos el loop de llegadas (lista vacía)
             if (feed != null) {
                 for (entity in feed.entityList) {
                     if (entity.hasTripUpdate()) {
@@ -145,6 +158,7 @@ class RutasCercaFragment : Fragment() {
     override fun onDetach() {
         super.onDetach()
         mapMover = null
+        routeNavigator = null // Limpiamos la referencia
     }
 }
 

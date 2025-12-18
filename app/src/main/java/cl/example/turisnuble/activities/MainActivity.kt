@@ -194,6 +194,8 @@ class MainActivity : AppCompatActivity(),
     private var isBusesVisible = true
     private var isParaderosVisible = true
     private var isTurismoVisible = true
+    // Variable para recordar si venimos de un punto turístico
+    private var pendingReturnToTurismo: PuntoTuristico? = null
     // -----------------------------------------
     // ----------------------------------------------
 
@@ -438,28 +440,48 @@ class MainActivity : AppCompatActivity(),
         setContentView(R.layout.activity_main)
 
         // --- GESTIÓN INTELIGENTE DEL BOTÓN ATRÁS ---
+        // --- GESTIÓN INTELIGENTE DEL BOTÓN ATRÁS ---
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // NIVEL 1: Dejar que el sistema cierre fragmentos de detalle (Turismo/Ruta)
+
+                // NIVEL 1: Fragmentos abiertos en la pila
                 if (supportFragmentManager.backStackEntryCount > 0) {
                     supportFragmentManager.popBackStack()
                     return
                 }
 
-                // NIVEL 2: Limpiar el mapa si hay rutas o selecciones ("Limpiar pantalla")
-                // Se usa false para no mover la cámara bruscamente
+                // --- CORRECCIÓN AQUÍ ---
+                // 1. Capturamos el valor en una variable local inmutable (SNAPSHOT)
+                val puntoRetorno = sharedViewModel.puntoTuristicoRetorno
+
+                // 2. Comprobamos si la variable local tiene datos
+                if (puntoRetorno != null) {
+
+                    // 3. Limpiamos la "caja fuerte" para la próxima vez
+                    sharedViewModel.puntoTuristicoRetorno = null
+
+                    // 4. Limpiamos las rutas del mapa
+                    clearRoutes(recenterToUser = false)
+
+                    // 5. Usamos la variable local 'puntoRetorno' (Kotlin ya sabe que es segura)
+                    showTurismoDetail(puntoRetorno)
+                    return
+                }
+                // -----------------------
+
+                // NIVEL 2: Limpiar mapa general
                 if (selectedRouteId != null || currentSelectedStopId != null || currentInfoMarker != null) {
                     clearRoutes(recenterToUser = false)
                     return
                 }
 
-                // NIVEL 3: Si el menú de abajo está tapando el mapa (expandido), bájalo
+                // NIVEL 3: Colapsar BottomSheet
                 if (::bottomSheetBehavior.isInitialized && bottomSheetBehavior.state == BottomSheetBehavior.STATE_EXPANDED) {
                     bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
                     return
                 }
 
-                // NIVEL 4: Salir de la app con seguridad (Doble confirmación)
+                // NIVEL 4: Salir
                 if (doubleBackToExitPressedOnce) {
                     finish()
                     return
@@ -479,22 +501,18 @@ class MainActivity : AppCompatActivity(),
         })
         // ---------------------------------------------
 
-        // 3. Hacer la barra de navegación (abajo) blanca sólida
+        // Configuración de UI Sistema
         window.navigationBarColor = Color.WHITE
 
-        // --- INICIALIZACIÓN DE AUTH ---
+        // Inicializaciones
         auth = FirebaseAuth.getInstance()
-
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        // Configuración inicial del BottomSheet
+        // BottomSheet
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
-
-        // Altura inicial: 40% de la pantalla
         val screenHeight = resources.displayMetrics.heightPixels
         bottomSheetBehavior.maxHeight = (screenHeight * 0.40).toInt()
-
         peekHeightInPixels = (46 * resources.displayMetrics.density).toInt()
         bottomSheetBehavior.peekHeight = peekHeightInPixels
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
@@ -502,40 +520,35 @@ class MainActivity : AppCompatActivity(),
         setupTabs()
         setupBottomSheetCallback()
 
+        // Mapa
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync(this)
 
+        // Botones Flotantes (FABs)
         locationFab = findViewById(R.id.location_fab)
-
-        // --- LÓGICA SIMPLIFICADA DEL BOTÓN DE UBICACIÓN + HAPTIC FEEDBACK ---
         locationFab.setOnClickListener {
-            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) // Vibración
-
-            // Estados: 0=Centrar, 1=Reset Total
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             when (locationButtonState) {
-                0 -> { // 1. Centrar en usuario
+                0 -> { // Centrar
                     val locationComponent = map.locationComponent
                     if (locationComponent.isLocationComponentActivated) {
                         locationComponent.cameraMode = CameraMode.TRACKING
                         locationComponent.renderMode = RenderMode.NORMAL
-                        locationButtonState = 1 // Siguiente click -> Reset
+                        locationButtonState = 1
                         Toast.makeText(this, "Centrado en tu ubicación", Toast.LENGTH_SHORT).show()
                     }
                 }
-
-                1 -> { // 2. Reset Total (Limpiar Rutas y Mostrar todos los paraderos)
+                1 -> { // Reset Total
                     clearRoutes(recenterToUser = true)
-                    locationButtonState = 0 // Vuelve al inicio (Centrar)
+                    locationButtonState = 0
                 }
             }
         }
 
-        // --- CONEXIÓN DEL BOTÓN DE ESTILO + HAPTIC FEEDBACK ---
         mapStyleFab = findViewById(R.id.map_style_fab)
         mapStyleFab.setOnClickListener {
-            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) // Vibración
-
+            it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             val COOLDOWN_MS = 1500
             val now = System.currentTimeMillis()
             if (now - lastMapStyleClickTime > COOLDOWN_MS) {
@@ -544,61 +557,47 @@ class MainActivity : AppCompatActivity(),
             }
         }
 
-        // --- NUEVO: CONEXIÓN DEL BOTÓN DE CAPAS (FILTRO) ---
         val layersFab: FloatingActionButton = findViewById(R.id.layers_fab)
         layersFab.setOnClickListener {
             showLayerFilterDialog()
         }
-        // ---------------------------------------------------
 
+        // Búsqueda
         searchView = findViewById(R.id.search_view)
         setupSearchListener()
-
         searchAdapter = SearchAdapter(emptyList()) { searchResult ->
             onSearchResultClicked(searchResult)
         }
 
+        // Notificaciones personalizadas
         customNotificationView = findViewById(R.id.custom_notification_container)
-        customNotificationMessage =
-            customNotificationView.findViewById(R.id.tv_notification_message)
-        customNotificationDismiss =
-            customNotificationView.findViewById(R.id.btn_notification_dismiss)
-
-        customNotificationDismiss.setOnClickListener {
-            hideCustomNotification()
-        }
+        customNotificationMessage = customNotificationView.findViewById(R.id.tv_notification_message)
+        customNotificationDismiss = customNotificationView.findViewById(R.id.btn_notification_dismiss)
+        customNotificationDismiss.setOnClickListener { hideCustomNotification() }
 
         searchResultsRecyclerView = findViewById(R.id.search_results_recyclerview)
         searchResultsRecyclerView.layoutManager = LinearLayoutManager(this)
         searchResultsRecyclerView.adapter = searchAdapter
 
+        // Observadores del ViewModel
         sharedViewModel.nearbyStops.observe(this) { nearbyStops ->
             if (selectedRouteId == null) {
                 showAllStops()
             }
         }
 
+        // Gestión de visibilidad del BottomSheet al volver
         val bottomSheetContent = findViewById<View>(R.id.bottom_sheet_content)
-
-        // --- LISTENER DE NAVEGACIÓN (Restaurar altura al volver) ---
         supportFragmentManager.addOnBackStackChangedListener {
             if (supportFragmentManager.backStackEntryCount == 0) {
-                // ESTAMOS EN LA PANTALLA PRINCIPAL:
-
-                // 1. Restauramos la altura al 40% original
+                // Volvimos al menú principal
                 val currentScreenHeight = resources.displayMetrics.heightPixels
                 bottomSheetBehavior.maxHeight = (currentScreenHeight * 0.40).toInt()
-
-                // 2. Mostramos el contenido principal del menú
                 bottomSheetContent.visibility = View.VISIBLE
 
-                // 3. Reseteamos lógica de paraderos cercanos
+                // Restaurar lógica de ubicación
                 sharedViewModel.setNearbyCalculationCenter(null)
-                if (ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.ACCESS_FINE_LOCATION
-                    ) == PackageManager.PERMISSION_GRANTED
-                ) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                     fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
                         loc?.let { findAndShowStopsAroundPoint(it.latitude, it.longitude) }
                             ?: findAndShowStopsAroundPoint(-36.606, -72.102)
@@ -607,72 +606,50 @@ class MainActivity : AppCompatActivity(),
                     findAndShowStopsAroundPoint(-36.606, -72.102)
                 }
             } else {
-                // ESTAMOS EN UN DETALLE (Turismo, Ruta, etc):
+                // Estamos en un detalle (Turismo u otro)
                 bottomSheetContent.visibility = View.GONE
             }
         }
 
         sharedViewModel.selectedStopId.observe(this) { stopId ->
             currentSelectedStopId = stopId
-            if (selectedRouteId != null && selectedDirectionId != null) {
-                val paraderosDeRuta =
-                    GtfsDataManager.getStopsForRoute(selectedRouteId!!, selectedDirectionId!!)
-                showParaderosOnMap(paraderosDeRuta)
-            } else {
-                showAllStops()
+            if (selectedRouteId == null) {
+                if (stopId != null) {
+                    val stop = GtfsDataManager.stops[stopId]
+                    if (stop != null) showParaderosOnMap(listOf(stop))
+                } else {
+                    showAllStops()
+                }
             }
         }
 
-        // --- LÓGICA DEL MENÚ DE OPCIONES ---
+        // Menú de opciones (Tres puntos)
         val optionsMenuButton = findViewById<ImageView>(R.id.optionsMenuButton)
         optionsMenuButton.setOnClickListener { view ->
             val popup = PopupMenu(this, view)
             popup.menuInflater.inflate(R.menu.main_options_menu, popup.menu)
-
             val currentUser = auth.currentUser
             val menu = popup.menu
 
-            if (currentUser == null) {
-                menu.findItem(R.id.menu_perfil).isVisible = false
-                menu.findItem(R.id.menu_favoritos).isVisible = false
-                menu.findItem(R.id.menu_sugerencias).isVisible = false
-            } else {
-                menu.findItem(R.id.menu_perfil).isVisible = true
-                menu.findItem(R.id.menu_favoritos).isVisible = true
-                menu.findItem(R.id.menu_sugerencias).isVisible = true
-            }
+            val isUserLoggedIn = currentUser != null
+            menu.findItem(R.id.menu_perfil).isVisible = isUserLoggedIn
+            menu.findItem(R.id.menu_favoritos).isVisible = isUserLoggedIn
+            menu.findItem(R.id.menu_sugerencias).isVisible = isUserLoggedIn
 
             popup.setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
-                    R.id.menu_perfil -> {
-                        startActivity(Intent(this, ProfileActivity::class.java))
-                        true
-                    }
-
-                    R.id.menu_favoritos -> {
-                        startActivity(Intent(this, FavoritosActivity::class.java))
-                        true
-                    }
-
-                    R.id.menu_sugerencias -> {
-                        startActivity(Intent(this, SugerenciasActivity::class.java))
-                        true
-                    }
-
-                    R.id.menu_logout -> {
-                        cerrarSesion()
-                        true
-                    }
-
+                    R.id.menu_perfil -> { startActivity(Intent(this, ProfileActivity::class.java)); true }
+                    R.id.menu_favoritos -> { startActivity(Intent(this, FavoritosActivity::class.java)); true }
+                    R.id.menu_sugerencias -> { startActivity(Intent(this, SugerenciasActivity::class.java)); true }
+                    R.id.menu_logout -> { cerrarSesion(); true }
                     else -> false
                 }
             }
             popup.show()
         }
 
-        // --- PROCESAR INTENT INICIAL ---
         processIntent(intent)
-    } // --- FIN DE onCreate ---
+    }// --- FIN DE onCreate ---
 
     // --- NUEVO MÉTODO: Se llama cuando la app ya está abierta y recibe un nuevo Intent ---
     override fun onNewIntent(intent: Intent) {
@@ -1169,11 +1146,31 @@ class MainActivity : AppCompatActivity(),
                 return@addOnMapClickListener true
             }
 
-            // 2. Paradero click
+            // 2. Paradero click (AQUÍ ESTÁ LA MAGIA)
             val paraderoFeatures = map.queryRenderedFeatures(screenPoint, "paradero-layer")
             if (paraderoFeatures.isNotEmpty()) {
                 val stopId = paraderoFeatures[0].getStringProperty("stop_id")
                 if (stopId != null) {
+
+                    // --- CORRECCIÓN: EVITAR EL RESETEO ---
+                    if (stopId == currentSelectedStopId) {
+                        // Si el usuario toca el MISMO paradero que ya está seleccionado:
+
+                        // 1. Aseguramos que el menú de abajo esté visible (por si lo habías ocultado)
+                        findViewById<View>(R.id.bottom_sheet_content).visibility = View.VISIBLE
+
+                        // 2. Si el menú estaba escondido, lo mostramos un poco (Colapsado)
+                        if (::bottomSheetBehavior.isInitialized && bottomSheetBehavior.state == BottomSheetBehavior.STATE_HIDDEN) {
+                            bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+                        }
+
+                        // 3. ¡IMPORTANTE! Retornamos true y NO hacemos nada más.
+                        // Así evitamos que se borren las rutas o parpadee la pantalla.
+                        return@addOnMapClickListener true
+                    }
+                    // -------------------------------------
+
+                    // Si es un paradero diferente, cargamos sus rutas normalmente
                     handleParaderoClick(stopId)
                 }
                 return@addOnMapClickListener true
@@ -1191,6 +1188,7 @@ class MainActivity : AppCompatActivity(),
                 return@addOnMapClickListener true
             }
 
+            // 4. Clic en el mapa vacío (Opcional: puedes comentar esto si no quieres que se limpie al tocar la nada)
             clearInfoMarker()
             true
         }
@@ -1522,18 +1520,20 @@ class MainActivity : AppCompatActivity(),
     private fun doShowTurismoDetail(punto: PuntoTuristico) {
         clearInfoMarker()
 
-        // 1. Marcar visualmente el punto en el mapa (Icono seleccionado)
+        // 1. Marcar visualmente el punto en el mapa
         updateTurismoSelection(punto.id)
 
-        // 2. Ajustar altura dinámica del menú (55% de la pantalla para mejor visión)
+        // 2. Ajustar altura dinámica
         val screenHeight = resources.displayMetrics.heightPixels
         bottomSheetBehavior.maxHeight = (screenHeight * 0.55).toInt()
 
-        // 3. Mostrar el fragmento de detalle
-        val fragment = DetalleTurismoFragment.Companion.newInstance(punto)
+        // 3. Mostrar el fragmento
+        val fragment = DetalleTurismoFragment.newInstance(punto)
         findViewById<View>(R.id.bottom_sheet_content).visibility = View.GONE
+
         supportFragmentManager.beginTransaction()
-            .replace(R.id.bottom_sheet, fragment)
+            // --- CORRECCIÓN AQUÍ: Agregamos el tag "turismo_detail" ---
+            .replace(R.id.bottom_sheet, fragment, "turismo_detail")
             .addToBackStack("turismo_detail")
             .commitAllowingStateLoss()
 
@@ -1568,36 +1568,61 @@ class MainActivity : AppCompatActivity(),
             .commit()
     }
 
-    override fun showRoutesForStop(stopId: String) {
-        // 1. ¡CRUCIAL! Seleccionar el paradero en el ViewModel.
-        // Esto hace que:
-        // - El título cambie de "Resultados" al nombre del paradero.
-        // - El paradero se pinte verde en el mapa.
-        // - El adaptador pueda calcular distancias y tiempos (al saber dónde está el usuario).
+    // Asegúrate de actualizar la firma de la función con el nuevo parámetro
+    // Asegúrate de cambiar la firma para aceptar (stopId, puntoOrigen)
+    // En MainActivity.kt
+
+    override fun showRoutesForStop(stopId: String, puntoOrigen: PuntoTuristico?) {
+
+        // --- NUEVO: LIMPIEZA VISUAL INMEDIATA ---
+        // Al tocar un paradero, deseleccionamos el punto turístico (vuelve a ser icono chico)
+        // para no entorpecer la vista del mapa.
+        updateTurismoSelection(null)
+        // ----------------------------------------
+
+        // (Opcional) Si aún quieres mantener la memoria para volver con el botón atrás:
+        pendingReturnToTurismo = puntoOrigen
+
+        // 1. Seleccionar el paradero
         sharedViewModel.selectStop(stopId)
 
-        // 2. Obtener las rutas de ese paradero y filtrar la lista
+        // 2. Obtener rutas y filtrar
         val routesForStop = GtfsDataManager.getRoutesForStop(stopId)
         sharedViewModel.setRouteFilter(routesForStop)
 
-        // 3. Movernos a la pestaña de "Rutas" (índice 2)
+        // 3. Mostrar notificación
+        showCustomNotification("Mostrando rutas para el paradero $stopId")
+
+        // 4. Cambiar a la pestaña de Rutas
         viewPager.setCurrentItem(2, true)
 
-        // 4. Cerrar el fragmento de detalle de turismo y mostrar el contenido principal
-        supportFragmentManager.popBackStack(
-            "turismo_detail",
-            FragmentManager.POP_BACK_STACK_INCLUSIVE
-        )
+        // 5. Cerrar el fragmento de turismo (si estaba abierto) para despejar la pantalla
+        supportFragmentManager.popBackStack("turismo_detail", FragmentManager.POP_BACK_STACK_INCLUSIVE)
         findViewById<View>(R.id.bottom_sheet_content).visibility = View.VISIBLE
 
-        // 5. Centrar el mapa en el paradero seleccionado para dar contexto visual
+        // 6. Centrar el mapa en el paradero
         GtfsDataManager.stops[stopId]?.let { stop ->
             centerMapOnPoint(stop.location.latitude, stop.location.longitude)
         }
     }
 
     override fun hideDetailFragment() {
-        supportFragmentManager.popBackStack()
+        // 1. Deseleccionar visualmente el punto turístico
+        // Esto hace que el icono en el mapa vuelva a su tamaño y color normal
+        updateTurismoSelection(null)
+
+        // 2. Eliminar cualquier marcador de información (burbujas de texto)
+        clearInfoMarker()
+
+        // 3. Ocultar notificaciones flotantes ("Mostrando rutas...", etc.)
+        hideCustomNotification()
+
+        // 4. Acción de navegación (Cerrar el fragmento)
+        if (supportFragmentManager.backStackEntryCount > 0) {
+            supportFragmentManager.popBackStack()
+        }
+
+        // 5. Restaurar la visibilidad del menú principal (Bottom Sheet)
         findViewById<View>(R.id.bottom_sheet_content).visibility = View.VISIBLE
     }
 
@@ -1880,16 +1905,17 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun clearRoutes(recenterToUser: Boolean) {
-        // --- 1. RESETEAR VARIABLES DE ESTADO (ESTO FALTABA) ---
+        // --- 1. RESETEAR VARIABLES DE ESTADO ---
         selectedRouteId = null
         selectedDirectionId = null
         currentDestinationStopId = null
 
-        // Al hacer nulas estas variables, el Observer de selectedStopId
-        // entrará en el 'else' y ejecutará showAllStops()
-        // ------------------------------------------------------
+        // --- 2. OCULTAR LA NOTIFICACIÓN (ESTA ES LA LÍNEA NUEVA) ---
+        // Al salir o limpiar el mapa, quitamos el mensaje de "Mostrando rutas..."
+        hideCustomNotification()
+        // ------------------------------------------------------------
 
-        // 2. Limpiar capas visuales del mapa
+        // 3. Limpiar capas visuales del mapa
         map?.getStyle { style ->
             val routeLayerId = "route-layer"
             val routeCasingLayerId = "route-layer-casing"
@@ -1907,9 +1933,11 @@ class MainActivity : AppCompatActivity(),
             if (style.getLayer(routeLayerId) != null) style.removeLayer(routeLayerId)
             if (style.getLayer(routeCasingLayerId) != null) style.removeLayer(routeCasingLayerId)
 
-            // Remover flechas (Si usaste nombres dinámicos, clearDrawnElements lo maneja,
-            // pero por seguridad limpiamos la genérica si existe)
+            // Remover flechas
             if (style.getLayer("route-arrow-layer") != null) style.removeLayer("route-arrow-layer")
+            // También intentamos remover por ID dinámico si quedó guardado
+            currentRouteArrowLayerId?.let { if (style.getLayer(it) != null) style.removeLayer(it) }
+
 
             // Remover fuentes
             if (style.getSource(iconSourceId) != null) style.removeSource(iconSourceId)
@@ -1917,15 +1945,13 @@ class MainActivity : AppCompatActivity(),
             if (style.getSource(routeSourceId) != null) style.removeSource(routeSourceId)
         }
 
-        // 3. Limpiar referencias a IDs de capas dinámicas
+        // 4. Limpiar referencias a IDs de capas dinámicas
         clearDrawnElements()
 
-        // 4. Notificar al ViewModel
-        // Esto dispara el observer. Como selectedRouteId ahora es NULL (paso 1),
-        // el observer pintará TODOS los paraderos azules.
+        // 5. Notificar al ViewModel (Deseleccionar paradero visualmente)
         sharedViewModel.selectStop(null)
 
-        // 5. Recentrar cámara
+        // 6. Recentrar cámara (si aplica)
         if (recenterToUser) {
             val locationComponent = map?.locationComponent
             if (locationComponent != null &&

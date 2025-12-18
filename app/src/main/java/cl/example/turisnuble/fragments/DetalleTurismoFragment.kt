@@ -1,7 +1,5 @@
 package cl.example.turisnuble.fragments
 
-// --- IMPORTACIONES DE GLIDE AÑADIDAS ---
-// ---------------------------------------
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
@@ -14,12 +12,14 @@ import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels // <--- IMPORTANTE
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import cl.example.turisnuble.R
 import cl.example.turisnuble.data.FavoritesManager
 import cl.example.turisnuble.data.GtfsDataManager
 import cl.example.turisnuble.data.GtfsStop
+import cl.example.turisnuble.data.SharedViewModel // <--- IMPORTANTE
 import cl.example.turisnuble.models.PuntoTuristico
 import cl.example.turisnuble.utils.DetalleTurismoNavigator
 import com.bumptech.glide.Glide
@@ -29,6 +29,9 @@ import com.google.firebase.auth.ktx.auth
 import com.google.firebase.ktx.Firebase
 
 class DetalleTurismoFragment : Fragment() {
+
+    // 1. INYECTAMOS EL VIEWMODEL COMPARTIDO
+    private val sharedViewModel: SharedViewModel by activityViewModels()
 
     private var navigator: DetalleTurismoNavigator? = null
     private lateinit var auth: FirebaseAuth
@@ -74,25 +77,21 @@ class DetalleTurismoFragment : Fragment() {
         }
 
         val btnComoLlegar: Button = view.findViewById(R.id.btn_como_llegar)
-
-        // --- CORRECCIÓN AQUÍ: USAR GLIDE PARA LA IMAGEN ---
         val imageView = view.findViewById<ImageView>(R.id.imagen_punto_turistico)
 
         Glide.with(this)
-            .load(puntoTuristico.imagenUrl) // Usamos la URL
+            .load(puntoTuristico.imagenUrl)
             .placeholder(R.drawable.ic_launcher_background)
             .error(R.drawable.ic_close)
             .transform(CenterCrop())
             .into(imageView)
-        // --------------------------------------------------
 
         view.findViewById<TextView>(R.id.nombre_punto_turistico).text = puntoTuristico.nombre
         view.findViewById<TextView>(R.id.direccion_punto_turistico).text = puntoTuristico.direccion
-
         view.findViewById<TextView>(R.id.categoria_punto_turistico).text =
             puntoTuristico.categoria.uppercase()
 
-        // ... (Resto del código igual: paraderos cercanos, favoritos, etc.) ...
+        // --- LÓGICA DE PARADEROS CERCANOS ---
         val nearbyStops =
             GtfsDataManager.getNearbyStops(puntoTuristico.latitud, puntoTuristico.longitud, 3)
         val recyclerView = view.findViewById<RecyclerView>(R.id.recycler_view_paraderos_cercanos)
@@ -107,6 +106,10 @@ class DetalleTurismoFragment : Fragment() {
             recyclerView.visibility = View.VISIBLE
 
             val adapter = ParaderosCercanosAdapter(nearbyStops) { stop ->
+                // 2. GUARDAMOS EL PUNTO EN LA CAJA FUERTE (VIEWMODEL)
+                sharedViewModel.puntoTuristicoRetorno = puntoTuristico
+
+                // 3. NAVEGAMOS NORMALMENTE
                 navigator?.showRoutesForStop(stop.stopId)
             }
             recyclerView.adapter = adapter
@@ -147,7 +150,6 @@ class DetalleTurismoFragment : Fragment() {
         }
 
         btnComoLlegar.setOnClickListener {
-            Log.d("DetalleTurismo", "Botón 'Cómo Llegar' presionado para ${puntoTuristico.nombre}")
             navigator?.onGetDirectionsClicked(puntoTuristico)
             navigator?.hideDetailFragment()
         }

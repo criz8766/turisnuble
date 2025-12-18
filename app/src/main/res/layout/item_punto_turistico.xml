@@ -70,19 +70,6 @@
                 android:ellipsize="end"
                 android:drawablePadding="4dp"
                 tools:text="Arauco 505, Chillán" />
-
-            <TextView
-                android:id="@+id/distancia_turismo"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:textColor="?attr/colorPrimary"
-                android:visibility="gone"
-                tools:text="1.2 km"
-                tools:visibility="visible" />
-
         </LinearLayout>
 
     </LinearLayout>

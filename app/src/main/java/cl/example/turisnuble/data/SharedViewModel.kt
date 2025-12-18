@@ -6,8 +6,11 @@ import androidx.lifecycle.ViewModel
 import cl.example.turisnuble.fragments.DisplayRouteInfo
 import com.google.transit.realtime.GtfsRealtime
 import org.maplibre.android.geometry.LatLng
+import cl.example.turisnuble.models.PuntoTuristico
 
 class SharedViewModel : ViewModel() {
+
+    var puntoTuristicoRetorno: PuntoTuristico? = null
 
     // Datos en vivo (GTFS-RT)
     // Se cambió a Nullable (?) para mayor seguridad
