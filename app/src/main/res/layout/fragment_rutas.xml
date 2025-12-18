@@ -1,37 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@color/background">
+    android:background="@color/background"
+    android:orientation="vertical">
 
     <LinearLayout
-        android:id="@+id/btn_volver_categorias"
+        android:id="@+id/layout_header_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
         android:background="?attr/colorPrimary"
         android:gravity="center_vertical"
+        android:orientation="horizontal"
         android:padding="12dp"
         android:visibility="gone">
 
         <ImageView
+            android:id="@+id/btn_volver_categorias"
             android:layout_width="32dp"
             android:layout_height="32dp"
-            android:src="@drawable/flecha_volver"
             android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Volver"
             android:padding="4dp"
-            android:contentDescription="Volver" />
+            android:src="@drawable/flecha_volver"
+            app:tint="@android:color/white" />
 
         <TextView
             android:id="@+id/txt_titulo_categoria_actual"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
+            android:layout_weight="1"
             android:text="Categoría"
             android:textColor="@android:color/white"
             android:textSize="18sp"
             android:textStyle="bold" />
+
+        <ImageButton
+            android:id="@+id/btn_fav_header"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Guardar Paradero"
+            android:padding="6dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_star_border"
+            android:visibility="gone"
+            app:tint="@android:color/white" />
+
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView
