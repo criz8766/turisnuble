@@ -1,10 +1,10 @@
 package cl.example.turisnuble.fragments
 
 import android.content.Context
-import android.content.res.ColorStateList
 import android.graphics.Color
-import android.location.Location
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -26,6 +26,7 @@ import cl.example.turisnuble.data.FavoritesManager
 import cl.example.turisnuble.data.GtfsDataManager
 import cl.example.turisnuble.data.GtfsRoute
 import cl.example.turisnuble.data.SharedViewModel
+// IMPORTANTE: Importamos tu interfaz
 import cl.example.turisnuble.utils.RouteDrawer
 import com.google.android.material.card.MaterialCardView
 import com.google.firebase.auth.FirebaseAuth
@@ -37,8 +38,9 @@ import com.google.firebase.ktx.Firebase
 import com.google.transit.realtime.GtfsRealtime
 import kotlinx.coroutines.launch
 import org.maplibre.android.geometry.LatLng
+import android.content.res.ColorStateList
+import android.location.Location
 
-// Clase de datos auxiliar
 data class DisplayRouteInfo(
     val route: GtfsRoute,
     val directionId: Int,
@@ -47,16 +49,23 @@ data class DisplayRouteInfo(
 
 class RutasFragment : Fragment() {
 
+    // VOLVEMOS A USAR LA INTERFAZ
     private var routeDrawer: RouteDrawer? = null
     private val sharedViewModel: SharedViewModel by activityViewModels()
 
     private lateinit var recyclerView: RecyclerView
-
-    // UI Cabecera (Tu diseño personalizado)
     private lateinit var headerContainer: View
     private lateinit var btnVolver: View
     private lateinit var txtTitulo: TextView
     private lateinit var btnFavHeader: ImageButton
+
+    // Empty State
+    private lateinit var layoutEmptyState: View
+
+    // Status Bar
+    private lateinit var txtEstadoDatos: TextView
+    private val statusHandler = Handler(Looper.getMainLooper())
+    private var lastUpdateMillis: Long = 0
 
     private var currentParaderoFavListener: ValueEventListener? = null
     private var currentParaderoRefString: String? = null
@@ -66,6 +75,45 @@ class RutasFragment : Fragment() {
     private var ruralRoutes: List<DisplayRouteInfo> = emptyList()
     private var isShowingList = false
 
+    private val statusRunnable = object : Runnable {
+        override fun run() {
+            if (!isAdded || lastUpdateMillis == 0L) return
+            val diffSeconds = (System.currentTimeMillis() - lastUpdateMillis) / 1000
+            var delayParaSiguienteEjecucion = 10000L
+
+            when {
+                diffSeconds < 60 -> {
+                    val textoVerde = "Datos actualizados recientemente"
+                    if (txtEstadoDatos.text != textoVerde) {
+                        txtEstadoDatos.text = textoVerde
+                        txtEstadoDatos.setBackgroundColor(Color.parseColor("#4CAF50"))
+                    }
+                    val segundosRestantes = 60 - diffSeconds
+                    delayParaSiguienteEjecucion = (segundosRestantes * 1000).coerceAtLeast(1000)
+                }
+                diffSeconds < 120 -> {
+                    val textoNaranja = "Actualizando información..."
+                    if (txtEstadoDatos.text != textoNaranja) {
+                        txtEstadoDatos.text = textoNaranja
+                        txtEstadoDatos.setBackgroundColor(Color.parseColor("#FF9800"))
+                    }
+                    delayParaSiguienteEjecucion = 30000
+                }
+                else -> {
+                    val mins = diffSeconds / 60
+                    val textoRojo = "Sin conexión - Datos de hace $mins min"
+                    if (txtEstadoDatos.text != textoRojo) {
+                        txtEstadoDatos.text = textoRojo
+                        txtEstadoDatos.setBackgroundColor(Color.parseColor("#F44336"))
+                    }
+                    delayParaSiguienteEjecucion = 60000
+                }
+            }
+            statusHandler.postDelayed(this, delayParaSiguienteEjecucion)
+        }
+    }
+
+    // CONECTAMOS LA INTERFAZ
     override fun onAttach(context: Context) {
         super.onAttach(context)
         if (context is RouteDrawer) {
@@ -81,12 +129,13 @@ class RutasFragment : Fragment() {
     ): View? {
         val view = inflater.inflate(R.layout.fragment_rutas, container, false)
 
-        // Binding de Vistas (Con tus IDs originales y la estrella agregada)
         recyclerView = view.findViewById(R.id.recycler_view_rutas)
         headerContainer = view.findViewById(R.id.layout_header_container)
         btnVolver = view.findViewById(R.id.btn_volver_categorias)
         txtTitulo = view.findViewById(R.id.txt_titulo_categoria_actual)
         btnFavHeader = view.findViewById(R.id.btn_fav_header)
+        txtEstadoDatos = view.findViewById(R.id.txt_estado_datos)
+        layoutEmptyState = view.findViewById(R.id.layout_empty_state)
 
         recyclerView.layoutManager = LinearLayoutManager(context)
         recyclerView.setHasFixedSize(true)
@@ -125,11 +174,48 @@ class RutasFragment : Fragment() {
 
         sharedViewModel.feedMessage.observe(viewLifecycleOwner) { feedMessage ->
             if (isShowingList && recyclerView.adapter is RutasAdapter) {
-                (recyclerView.adapter as RutasAdapter).updateRealtimeData(feedMessage?.entityList)
+                val adapter = recyclerView.adapter as RutasAdapter
+                adapter.updateRealtimeData(feedMessage?.entityList)
+                checkEmptyState()
+            }
+        }
+
+        sharedViewModel.lastUpdateTimestamp.observe(viewLifecycleOwner) { timestamp ->
+            lastUpdateMillis = timestamp
+            if (txtEstadoDatos.visibility == View.VISIBLE) {
+                statusHandler.removeCallbacks(statusRunnable)
+                statusRunnable.run()
             }
         }
 
         return view
+    }
+
+    private fun checkEmptyState() {
+        if (recyclerView.adapter == null || recyclerView.adapter!!.itemCount == 0) {
+            layoutEmptyState.visibility = View.VISIBLE
+            recyclerView.visibility = View.GONE
+        } else {
+            layoutEmptyState.visibility = View.GONE
+            recyclerView.visibility = View.VISIBLE
+        }
+    }
+
+    private fun showStatusIndicator(show: Boolean) {
+        if (show) {
+            txtEstadoDatos.visibility = View.VISIBLE
+            statusHandler.removeCallbacks(statusRunnable)
+            statusRunnable.run()
+        } else {
+            txtEstadoDatos.visibility = View.GONE
+            statusHandler.removeCallbacks(statusRunnable)
+        }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        removeFavListener()
+        statusHandler.removeCallbacks(statusRunnable)
     }
 
     private fun prepareClassifiedRoutes() {
@@ -155,10 +241,19 @@ class RutasFragment : Fragment() {
             )
     }
 
+    // --- AQUÍ APLICAMOS LA LÓGICA DE LIMPIEZA ---
     private fun showCategories() {
         isShowingList = false
         headerContainer.visibility = View.GONE
         removeFavListener()
+        showStatusIndicator(false)
+
+        // 1. Limpiamos las rutas del mapa usando la interfaz
+        // 'recenterToUser = false' evita saltos bruscos de cámara
+        routeDrawer?.clearRoutes(recenterToUser = false)
+
+        // 2. Limpiamos la selección del paradero en el ViewModel
+        sharedViewModel.selectStop(null)
 
         val categories = listOf(
             RouteCategory("Micros de Chillán", urbanRoutes.size, R.drawable.buses_chillan, urbanRoutes),
@@ -168,6 +263,7 @@ class RutasFragment : Fragment() {
         recyclerView.adapter = RutaCategoriaAdapter(categories) { selected ->
             showRouteList(selected.name, selected.routes)
         }
+        checkEmptyState()
     }
 
     private fun showRouteList(title: String, routes: List<DisplayRouteInfo>) {
@@ -175,23 +271,33 @@ class RutasFragment : Fragment() {
         headerContainer.visibility = View.VISIBLE
         btnFavHeader.visibility = View.GONE
         removeFavListener()
+        showStatusIndicator(true)
 
         txtTitulo.text = title
 
-        // Pasamos null para no calcular en vista general
         val currentStopId: String? = null
         val currentStopLocation: LatLng? = null
         val currentEntities: List<GtfsRealtime.FeedEntity>? = null
 
-        if (title == "Buses Rurales") {
-            val adapter = RutasAdapter(routes, emptyList(), null, null, null, onItemClick = { displayRoute ->
-                routeDrawer?.drawRoute(displayRoute.route, displayRoute.directionId)
+        val onRouteClicked: (DisplayRouteInfo) -> Unit = { displayRoute ->
+            // Usamos la interfaz para dibujar
+            routeDrawer?.drawRoute(displayRoute.route, displayRoute.directionId)
+
+            if (title != "Buses Rurales") {
+                (activity as? MainActivity)?.showRouteDetail(displayRoute.route.routeId, displayRoute.directionId)
+            } else {
                 Toast.makeText(context, "Mostrando: ${displayRoute.route.longName}", Toast.LENGTH_SHORT).show()
-                (recyclerView.adapter as? RutasAdapter)?.let {
-                    it.selectedRouteId = displayRoute.route.routeId
-                    it.notifyDataSetChanged()
-                }
-            })
+            }
+
+            (recyclerView.adapter as? RutasAdapter)?.let {
+                it.selectedRouteId = displayRoute.route.routeId
+                it.notifyDataSetChanged()
+            }
+        }
+
+        if (title == "Buses Rurales") {
+            showStatusIndicator(false)
+            val adapter = RutasAdapter(routes, emptyList(), null, null, null, onItemClick = onRouteClicked)
             recyclerView.adapter = adapter
         } else {
             val mainRoutes = routes.filter {
@@ -204,28 +310,23 @@ class RutasFragment : Fragment() {
             val variantRoutes = routes.filterNot { mainRoutes.contains(it) }
                 .sortedBy { it.route.shortName }
 
-            val adapter = RutasAdapter(mainRoutes, variantRoutes, currentStopId, currentStopLocation, currentEntities, onItemClick = { displayRoute ->
-                routeDrawer?.drawRoute(displayRoute.route, displayRoute.directionId)
-                (activity as? MainActivity)?.showRouteDetail(displayRoute.route.routeId, displayRoute.directionId)
-                (recyclerView.adapter as? RutasAdapter)?.let {
-                    it.selectedRouteId = displayRoute.route.routeId
-                    it.notifyDataSetChanged()
-                }
-            })
+            val adapter = RutasAdapter(mainRoutes, variantRoutes, currentStopId, currentStopLocation, currentEntities, onItemClick = onRouteClicked)
             recyclerView.adapter = adapter
         }
+        checkEmptyState()
     }
 
     private fun showFilteredList(filteredRoutes: List<DisplayRouteInfo>) {
         isShowingList = true
         headerContainer.visibility = View.VISIBLE
+        showStatusIndicator(true)
 
         val currentStopId = sharedViewModel.selectedStopId.value
         val stop = if (currentStopId != null) GtfsDataManager.stops[currentStopId] else null
         val currentStopLocation = stop?.location
 
         if (stop != null) {
-            txtTitulo.text = stop.name // Nombre real del paradero
+            txtTitulo.text = stop.name
             btnFavHeader.visibility = View.VISIBLE
             setupFavButton(stop.stopId)
         } else {
@@ -243,15 +344,16 @@ class RutasFragment : Fragment() {
             currentStopId,
             currentStopLocation,
             currentEntities,
-            onItemClick = {
-                routeDrawer?.drawRoute(it.route, it.directionId)
-                (activity as? MainActivity)?.showRouteDetail(it.route.routeId, it.directionId)
+            onItemClick = { displayRoute ->
+                // Usamos la interfaz para dibujar
+                routeDrawer?.drawRoute(displayRoute.route, displayRoute.directionId)
+                (activity as? MainActivity)?.showRouteDetail(displayRoute.route.routeId, displayRoute.directionId)
             }
         )
         recyclerView.adapter = adapter
+        checkEmptyState()
     }
 
-    // --- FAVORITOS DEL PARADERO ---
     private fun setupFavButton(stopId: String) {
         val user = auth.currentUser
         if (user == null) {
@@ -266,10 +368,10 @@ class RutasFragment : Fragment() {
             override fun onDataChange(snapshot: DataSnapshot) {
                 if (snapshot.exists()) {
                     btnFavHeader.setImageResource(R.drawable.ic_star_filled)
-                    btnFavHeader.setColorFilter(Color.parseColor("#FFC107")) // Amarillo
+                    btnFavHeader.setColorFilter(Color.parseColor("#FFC107"))
                 } else {
                     btnFavHeader.setImageResource(R.drawable.ic_star_border)
-                    btnFavHeader.setColorFilter(Color.WHITE) // Blanco
+                    btnFavHeader.setColorFilter(Color.WHITE)
                 }
             }
             override fun onCancelled(error: DatabaseError) {}
@@ -302,21 +404,15 @@ class RutasFragment : Fragment() {
         currentParaderoFavListener = null
     }
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        removeFavListener()
-    }
-
     override fun onDetach() {
         super.onDetach()
         routeDrawer = null
     }
 }
 
-// =====================================================================
-// === ADAPTADOR CORREGIDO (Acceso correcto a Patente) ===
-// =====================================================================
-
+// === ADAPTADOR ===
+// Copia el adaptador tal cual lo tenías (con patentes y lógica híbrida).
+// No cambia nada en el adaptador respecto a la versión anterior.
 class RutasAdapter(
     private var mainRoutes: List<DisplayRouteInfo>,
     private var variantRoutes: List<DisplayRouteInfo>,
@@ -361,12 +457,11 @@ class RutasAdapter(
         notifyDataSetChanged()
     }
 
-    // ViewHolder con el nuevo campo Patente
     class RutaVH(v: View) : RecyclerView.ViewHolder(v) {
         val icono: ImageView = v.findViewById(R.id.icono_ruta)
         val linea: TextView = v.findViewById(R.id.nombre_linea)
         val recorrido: TextView = v.findViewById(R.id.nombre_recorrido)
-        val txtPatente: TextView = v.findViewById(R.id.txt_patente) // <--- NUEVO
+        val txtPatente: TextView = v.findViewById(R.id.txt_patente)
         val favBtn: ImageButton = v.findViewById(R.id.btn_favorite_paradero)
         val txtTiempo: TextView = v.findViewById(R.id.txt_tiempo_espera)
         val cardView = v as? MaterialCardView
@@ -403,7 +498,6 @@ class RutasAdapter(
             val item = if (position < mainRoutes.size) mainRoutes[position] else variantRoutes[position - mainRoutes.size - 1]
             val route = item.route
 
-            // Selección Visual
             if (holder.cardView != null) {
                 if (route.routeId == selectedRouteId) holder.cardView.setCardBackgroundColor(Color.parseColor("#C8E6C9"))
                 else holder.cardView.setCardBackgroundColor(holder.defaultColor)
@@ -421,11 +515,9 @@ class RutasAdapter(
                 holder.linea.text = if (route.shortName.startsWith("13")) "Línea 13" else "Línea ${route.shortName}"
                 holder.icono.setImageResource(getIconForRoute(route.routeId))
 
-                // === LÓGICA DE DATOS (TIEMPO + PATENTE) ===
                 val datosBus = obtenerDatosBusMasCercano(route.routeId, item.directionId)
 
                 if (datosBus != null) {
-                    // 1. Mostrar Tiempo
                     val tiempoStr = datosBus.first
                     holder.txtTiempo.visibility = View.VISIBLE
                     holder.txtTiempo.text = tiempoStr
@@ -438,7 +530,6 @@ class RutasAdapter(
                         holder.txtTiempo.setTextColor(Color.GRAY)
                     }
 
-                    // 2. Mostrar Patente (Si existe)
                     val patente = datosBus.second
                     if (!patente.isNullOrBlank()) {
                         holder.txtPatente.visibility = View.VISIBLE
@@ -446,9 +537,7 @@ class RutasAdapter(
                     } else {
                         holder.txtPatente.visibility = View.GONE
                     }
-
                 } else {
-                    // No hay datos -> Ocultar todo
                     holder.txtTiempo.visibility = View.GONE
                     holder.txtPatente.visibility = View.GONE
                 }
@@ -456,7 +545,6 @@ class RutasAdapter(
             holder.recorrido.text = route.longName
             holder.itemView.setOnClickListener { onItemClick(item) }
 
-            // Botón Favorito de Ruta
             if (currentUser == null) {
                 holder.favBtn.visibility = View.GONE
             } else {
@@ -470,7 +558,6 @@ class RutasAdapter(
         }
     }
 
-    // --- CEREBRO: Encuentra el bus y devuelve (Tiempo, Patente) ---
     private fun obtenerDatosBusMasCercano(routeId: String, directionId: Int): Pair<String, String?>? {
         if (currentStopLocation == null || feedEntities == null) return null
 
@@ -483,7 +570,6 @@ class RutasAdapter(
         val trip = GtfsDataManager.trips.values.find { it.routeId == routeId && it.directionId == directionId }
         val shapePoints = GtfsDataManager.shapes[trip?.shapeId]
 
-        // --- CASO 1: SIN SHAPE (Respaldo) ---
         if (shapePoints.isNullOrEmpty()) {
             val busMasCercano = busesDeLaLinea.minByOrNull {
                 val pos = it.vehicle.position
@@ -493,8 +579,6 @@ class RutasAdapter(
             } ?: return null
 
             val tiempoStr = calcularTiempoSimple(busMasCercano, currentStopLocation)
-
-            // CORRECCIÓN: Acceso correcto a patente -> vehicle.vehicle.licensePlate
             val patente = if (busMasCercano.vehicle.hasVehicle() && busMasCercano.vehicle.vehicle.hasLicensePlate()) {
                 busMasCercano.vehicle.vehicle.licensePlate
             } else null
@@ -502,10 +586,8 @@ class RutasAdapter(
             return if (tiempoStr != null) Pair(tiempoStr, patente) else null
         }
 
-        // --- CASO 2: CON SHAPE (Inteligente) ---
         val indiceParadero = encontrarIndiceMasCercano(shapePoints, currentStopLocation)
 
-        // Encontrar el bus más cercano que NO haya pasado
         val busGanador = busesDeLaLinea.filter { bus ->
             val pos = bus.vehicle.position
             val indiceBus = encontrarIndiceMasCercano(shapePoints, LatLng(pos.latitude.toDouble(), pos.longitude.toDouble()))
@@ -518,14 +600,11 @@ class RutasAdapter(
         val minutosGPS = calcularMinutosGPSParaBus(busGanador, shapePoints, indiceParadero)
         val minutosAPI = if (currentStopId != null) obtenerMinutosAPIParaBus(busGanador, currentStopId) else null
 
-        // Decisión Híbrida
         val minutosFinal = if (minutosGPS != null && minutosGPS < 10) minutosGPS else (minutosAPI ?: minutosGPS)
 
         if (minutosFinal == null) return null
 
         val tiempoStr = if (minutosFinal <= 0) "Llegando" else "$minutosFinal min"
-
-        // CORRECCIÓN: Acceso correcto a patente
         val patente = if (busGanador.vehicle.hasVehicle() && busGanador.vehicle.vehicle.hasLicensePlate()) {
             busGanador.vehicle.vehicle.licensePlate
         } else null
@@ -557,10 +636,8 @@ class RutasAdapter(
 
     private fun obtenerMinutosAPIParaBus(bus: GtfsRealtime.FeedEntity, stopId: String): Int? {
         if (!bus.hasTripUpdate()) return null
-
         val stopUpdates = bus.tripUpdate.stopTimeUpdateList
         val match = stopUpdates.find { it.stopId == stopId && it.hasArrival() }
-
         if (match != null) {
             val nowSeconds = System.currentTimeMillis() / 1000
             val diffMinutes = (match.arrival.time - nowSeconds) / 60

@@ -1569,14 +1569,31 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun showRoutesForStop(stopId: String) {
+        // 1. ¡CRUCIAL! Seleccionar el paradero en el ViewModel.
+        // Esto hace que:
+        // - El título cambie de "Resultados" al nombre del paradero.
+        // - El paradero se pinte verde en el mapa.
+        // - El adaptador pueda calcular distancias y tiempos (al saber dónde está el usuario).
+        sharedViewModel.selectStop(stopId)
+
+        // 2. Obtener las rutas de ese paradero y filtrar la lista
         val routesForStop = GtfsDataManager.getRoutesForStop(stopId)
         sharedViewModel.setRouteFilter(routesForStop)
+
+        // 3. Movernos a la pestaña de "Rutas" (índice 2)
         viewPager.setCurrentItem(2, true)
+
+        // 4. Cerrar el fragmento de detalle de turismo y mostrar el contenido principal
         supportFragmentManager.popBackStack(
             "turismo_detail",
             FragmentManager.POP_BACK_STACK_INCLUSIVE
         )
         findViewById<View>(R.id.bottom_sheet_content).visibility = View.VISIBLE
+
+        // 5. Centrar el mapa en el paradero seleccionado para dar contexto visual
+        GtfsDataManager.stops[stopId]?.let { stop ->
+            centerMapOnPoint(stop.location.latitude, stop.location.longitude)
+        }
     }
 
     override fun hideDetailFragment() {
@@ -1863,35 +1880,69 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun clearRoutes(recenterToUser: Boolean) {
-        // 1. Limpiezas básicas
-        clearInfoMarker()
-        clearDrawnElements()
-
-        // 2. Resetear variables de estado
+        // --- 1. RESETEAR VARIABLES DE ESTADO (ESTO FALTABA) ---
         selectedRouteId = null
         selectedDirectionId = null
-        currentDestinationStopId = null // Resetear destino
-        sharedViewModel.selectStop(null)
-        sharedViewModel.setNearbyCalculationCenter(null)
+        currentDestinationStopId = null
 
-        // 3. Desmarcar punto turístico seleccionado (vuelve al icono normal)
-        updateTurismoSelection(null)
+        // Al hacer nulas estas variables, el Observer de selectedStopId
+        // entrará en el 'else' y ejecutará showAllStops()
+        // ------------------------------------------------------
 
-        // 4. Actualizar marcadores de bus
-        updateBusMarkers()
+        // 2. Limpiar capas visuales del mapa
+        map?.getStyle { style ->
+            val routeLayerId = "route-layer"
+            val routeCasingLayerId = "route-layer-casing"
+            val routeSourceId = "route-source"
+            val walkingLayerId = "walking-layer"
+            val walkingSourceId = "walking-source"
+            val iconLayerStart = "icon-layer-start"
+            val iconLayerEnd = "icon-layer-end"
+            val iconSourceId = "icon-source"
 
-        // (Opcional) Toast informativo
-        // Toast.makeText(this, "Mapa restablecido", Toast.LENGTH_SHORT).show()
+            // Remover capas
+            if (style.getLayer(iconLayerStart) != null) style.removeLayer(iconLayerStart)
+            if (style.getLayer(iconLayerEnd) != null) style.removeLayer(iconLayerEnd)
+            if (style.getLayer(walkingLayerId) != null) style.removeLayer(walkingLayerId)
+            if (style.getLayer(routeLayerId) != null) style.removeLayer(routeLayerId)
+            if (style.getLayer(routeCasingLayerId) != null) style.removeLayer(routeCasingLayerId)
 
-        // 5. Mostrar todos los paraderos nuevamente
-        showAllStops()
+            // Remover flechas (Si usaste nombres dinámicos, clearDrawnElements lo maneja,
+            // pero por seguridad limpiamos la genérica si existe)
+            if (style.getLayer("route-arrow-layer") != null) style.removeLayer("route-arrow-layer")
 
-        // 6. Lógica de cámara
-        if (recenterToUser) {
-            requestFreshLocation()
+            // Remover fuentes
+            if (style.getSource(iconSourceId) != null) style.removeSource(iconSourceId)
+            if (style.getSource(walkingSourceId) != null) style.removeSource(walkingSourceId)
+            if (style.getSource(routeSourceId) != null) style.removeSource(routeSourceId)
         }
-        // NOTA: Se eliminó el 'else' para que la cámara no salte si limpias con el botón atrás.
-        // El usuario se queda viendo la zona del mapa donde estaba.
+
+        // 3. Limpiar referencias a IDs de capas dinámicas
+        clearDrawnElements()
+
+        // 4. Notificar al ViewModel
+        // Esto dispara el observer. Como selectedRouteId ahora es NULL (paso 1),
+        // el observer pintará TODOS los paraderos azules.
+        sharedViewModel.selectStop(null)
+
+        // 5. Recentrar cámara
+        if (recenterToUser) {
+            val locationComponent = map?.locationComponent
+            if (locationComponent != null &&
+                locationComponent.isLocationComponentActivated &&
+                locationComponent.lastKnownLocation != null) {
+
+                val loc = locationComponent.lastKnownLocation!!
+                val position = org.maplibre.android.camera.CameraPosition.Builder()
+                    .target(LatLng(loc.latitude, loc.longitude))
+                    .zoom(15.0)
+                    .tilt(0.0)
+                    .bearing(0.0)
+                    .build()
+
+                map?.animateCamera(CameraUpdateFactory.newCameraPosition(position), 1000)
+            }
+        }
     }
 
     private fun clearDrawnElements() {

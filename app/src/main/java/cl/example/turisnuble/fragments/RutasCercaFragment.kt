@@ -49,25 +49,21 @@ class RutasCercaFragment : Fragment() {
         recyclerView.layoutManager = LinearLayoutManager(context)
 
         adapter = ParaderosCercanosAdapter(emptyList()) { paraderoSeleccionado ->
-            // --- LÓGICA SIMPLIFICADA Y CORRECTA ---
-            // 1. Solo le decimos al ViewModel qué paradero seleccionar (para el ícono rojo).
             sharedViewModel.selectStop(paraderoSeleccionado.stopId)
-            // 2. Y le pedimos a la MainActivity que mueva el mapa hacia él.
             mapMover?.centerMapOnPoint(
                 paraderoSeleccionado.location.latitude,
                 paraderoSeleccionado.location.longitude
             )
-            // No reseteamos nada. El contexto del punto turístico se mantiene.
         }
         recyclerView.adapter = adapter
 
-        // Observamos si cambia el centro de interés para recalcular la lista.
         sharedViewModel.nearbyCalculationCenter.observe(viewLifecycleOwner) {
-            sharedViewModel.feedMessage.value?.let { feed -> findNearbyStopsAndArrivals(feed) }
+            // CORRECCIÓN: Pasar el feed nullable
+            findNearbyStopsAndArrivals(sharedViewModel.feedMessage.value)
         }
 
-        // Observamos si llegan nuevos datos de buses para recalcular la lista.
         sharedViewModel.feedMessage.observe(viewLifecycleOwner) { feed ->
+            // CORRECCIÓN: Pasar el feed nullable
             findNearbyStopsAndArrivals(feed)
         }
         return view
@@ -75,18 +71,16 @@ class RutasCercaFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        sharedViewModel.feedMessage.value?.let { findNearbyStopsAndArrivals(it) }
+        findNearbyStopsAndArrivals(sharedViewModel.feedMessage.value)
     }
 
-
-    private fun findNearbyStopsAndArrivals(feed: GtfsRealtime.FeedMessage) {
+    // CORRECCIÓN: El parámetro ahora acepta nulos (FeedMessage?)
+    private fun findNearbyStopsAndArrivals(feed: GtfsRealtime.FeedMessage?) {
         val calculationCenter = sharedViewModel.nearbyCalculationCenter.value
 
         if (calculationCenter != null) {
-            // Si hay un punto de interés (turístico), usamos sus coordenadas.
             calculateStops(feed, calculationCenter.latitude, calculationCenter.longitude)
         } else {
-            // Si no, volvemos al comportamiento original: usar la ubicación del GPS.
             val fusedLocationClient =
                 LocationServices.getFusedLocationProviderClient(requireActivity())
             try {
@@ -95,14 +89,12 @@ class RutasCercaFragment : Fragment() {
                         calculateStops(feed, it.latitude, it.longitude)
                     }
                 }
-            } catch (e: SecurityException) { /* Sin permisos */
-            }
+            } catch (e: SecurityException) { /* Sin permisos */ }
         }
     }
 
-    // --- Nueva función de ayuda para no repetir código ---
-    private fun calculateStops(feed: GtfsRealtime.FeedMessage, lat: Double, lon: Double) {
-        // La lógica de cálculo es la misma, pero ahora es reutilizable.
+    // CORRECCIÓN: El parámetro ahora acepta nulos (FeedMessage?)
+    private fun calculateStops(feed: GtfsRealtime.FeedMessage?, lat: Double, lon: Double) {
         val paraderosCercanos = GtfsDataManager.stops.values
             .map { stop ->
                 Pair(
@@ -114,23 +106,26 @@ class RutasCercaFragment : Fragment() {
             .sortedBy { it.second }
             .map { it.first }
 
-        // Actualizamos la lista de paraderos en el ViewModel para que el mapa se redibuje.
         sharedViewModel.setNearbyStops(paraderosCercanos)
 
         val paraderosConLlegadas = paraderosCercanos.map { paradero ->
             val llegadas = mutableListOf<LlegadaInfo>()
-            for (entity in feed.entityList) {
-                if (entity.hasTripUpdate()) {
-                    for (stopUpdate in entity.tripUpdate.stopTimeUpdateList) {
-                        if (stopUpdate.stopId == paradero.stopId) {
-                            val trip = entity.tripUpdate.trip
-                            val linea = GtfsDataManager.routes[trip.routeId]?.shortName ?: "Desc."
-                            val tiempoLlegada = stopUpdate.arrival.time
-                            val tiempoActual = System.currentTimeMillis() / 1000
-                            val diffMinutos =
-                                TimeUnit.SECONDS.toMinutes(tiempoLlegada - tiempoActual).toInt()
-                            if (diffMinutos >= 0) {
-                                llegadas.add(LlegadaInfo(linea, trip.directionId, diffMinutos))
+
+            // CORRECCIÓN: Si feed es null, saltamos el loop de llegadas (lista vacía)
+            if (feed != null) {
+                for (entity in feed.entityList) {
+                    if (entity.hasTripUpdate()) {
+                        for (stopUpdate in entity.tripUpdate.stopTimeUpdateList) {
+                            if (stopUpdate.stopId == paradero.stopId) {
+                                val trip = entity.tripUpdate.trip
+                                val linea = GtfsDataManager.routes[trip.routeId]?.shortName ?: "Desc."
+                                val tiempoLlegada = stopUpdate.arrival.time
+                                val tiempoActual = System.currentTimeMillis() / 1000
+                                val diffMinutos =
+                                    TimeUnit.SECONDS.toMinutes(tiempoLlegada - tiempoActual).toInt()
+                                if (diffMinutos >= 0) {
+                                    llegadas.add(LlegadaInfo(linea, trip.directionId, diffMinutos))
+                                }
                             }
                         }
                     }
@@ -153,7 +148,6 @@ class RutasCercaFragment : Fragment() {
     }
 }
 
-// La clase ParaderosCercanosAdapter no necesita cambios, puede quedar como está.
 class ParaderosCercanosAdapter(
     private var data: List<ParaderoConLlegadas>,
     private val onItemClick: (GtfsStop) -> Unit

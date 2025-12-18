@@ -9,8 +9,16 @@ import org.maplibre.android.geometry.LatLng
 
 class SharedViewModel : ViewModel() {
 
-    private val _feedMessage = MutableLiveData<GtfsRealtime.FeedMessage>()
-    val feedMessage: LiveData<GtfsRealtime.FeedMessage> = _feedMessage
+    // Datos en vivo (GTFS-RT)
+    // Se cambió a Nullable (?) para mayor seguridad
+    private val _feedMessage = MutableLiveData<GtfsRealtime.FeedMessage?>()
+    val feedMessage: LiveData<GtfsRealtime.FeedMessage?> = _feedMessage
+
+    // --- NUEVO: Timestamp de la última actualización ---
+    // Guarda la hora del sistema (milisegundos) cuando llegan datos nuevos
+    private val _lastUpdateTimestamp = MutableLiveData<Long>()
+    val lastUpdateTimestamp: LiveData<Long> = _lastUpdateTimestamp
+    // --------------------------------------------------
 
     private val _nearbyStops = MutableLiveData<List<GtfsStop>>()
     val nearbyStops: LiveData<List<GtfsStop>> = _nearbyStops
@@ -21,19 +29,21 @@ class SharedViewModel : ViewModel() {
     private val _selectedStopId = MutableLiveData<String?>()
     val selectedStopId: LiveData<String?> = _selectedStopId
 
-    // --- NUEVO: Guarda el centro de interés para los cálculos de cercanía ---
     private val _nearbyCalculationCenter = MutableLiveData<LatLng?>()
     val nearbyCalculationCenter: LiveData<LatLng?> = _nearbyCalculationCenter
 
-    fun setFeedMessage(feed: GtfsRealtime.FeedMessage) {
-        _feedMessage.value = feed
+    // Actualiza los datos y marca la hora
+    fun setFeedMessage(feed: GtfsRealtime.FeedMessage?) {
+        _feedMessage.postValue(feed)
+        // Guardamos el momento exacto (ahora)
+        _lastUpdateTimestamp.postValue(System.currentTimeMillis())
     }
 
     fun setNearbyStops(stops: List<GtfsStop>) {
         _nearbyStops.value = stops
     }
 
-    fun setRouteFilter(filteredRoutes: List<DisplayRouteInfo>) {
+    fun setRouteFilter(filteredRoutes: List<DisplayRouteInfo>?) {
         _routeFilter.value = filteredRoutes
     }
 
@@ -42,6 +52,7 @@ class SharedViewModel : ViewModel() {
     }
 
     fun selectStop(stopId: String?) {
+        // Si se toca el mismo paradero, se deselecciona
         if (_selectedStopId.value == stopId) {
             _selectedStopId.value = null
         } else {
@@ -49,7 +60,6 @@ class SharedViewModel : ViewModel() {
         }
     }
 
-    // --- NUEVA FUNCIÓN: Para establecer o limpiar el punto de interés ---
     fun setNearbyCalculationCenter(center: LatLng?) {
         _nearbyCalculationCenter.value = center
     }
