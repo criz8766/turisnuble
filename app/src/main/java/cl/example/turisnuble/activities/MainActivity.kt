@@ -1777,7 +1777,6 @@ class MainActivity : AppCompatActivity(),
         currentDestinationStopId = null
 
         locationButtonState = 1
-        locationFab.setImageResource(R.drawable.ic_close)
 
         val style = mapStyle ?: return
         val trip = GtfsDataManager.trips.values.find { it.routeId == route.routeId && it.directionId == directionId }

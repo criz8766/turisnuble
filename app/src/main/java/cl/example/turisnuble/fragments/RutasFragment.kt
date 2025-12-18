@@ -226,7 +226,7 @@ class RutasFragment : Fragment() {
         }
     }
 
-    // RESULTADOS (Con tiempos)
+    // RESULTADOS (Con tiempos inteligentes)
     private fun showFilteredList(filteredRoutes: List<DisplayRouteInfo>) {
         isShowingList = true
         btnVolver.visibility = View.VISIBLE
@@ -243,7 +243,7 @@ class RutasFragment : Fragment() {
             }, { it.route.shortName })),
             emptyList(),
             currentStopId,       // ID del paradero (para predicción API)
-            currentStopLocation, // Ubicación (para respaldo GPS)
+            currentStopLocation, // Ubicación (para respaldo GPS inteligente)
             currentEntities,     // Datos en vivo
             onItemClick = {
                 routeDrawer?.drawRoute(it.route, it.directionId)
@@ -259,7 +259,7 @@ class RutasFragment : Fragment() {
     }
 }
 
-// --- ADAPTADOR INTELIGENTE (Híbrido API/GPS) ---
+// --- ADAPTADOR INTELIGENTE (Híbrido API/GPS con Detección de Trayecto) ---
 
 class RutasAdapter(
     private var mainRoutes: List<DisplayRouteInfo>,
@@ -378,14 +378,14 @@ class RutasAdapter(
                     if (route.shortName.startsWith("13")) "Línea 13" else "Línea ${route.shortName}"
                 holder.icono.setImageResource(getIconForRoute(route.routeId))
 
-                // === LÓGICA DE TIEMPO ===
+                // === LÓGICA DE TIEMPO (MEJORADA) ===
                 val tiempoStr = obtenerTiempoLlegada(route.routeId, item.directionId)
 
                 if (tiempoStr != null) {
                     holder.txtTiempo.visibility = View.VISIBLE
                     holder.txtTiempo.text = tiempoStr
 
-                    // Colores
+                    // Colores según urgencia
                     if (tiempoStr == "Llegando" || (tiempoStr.contains("min") && (tiempoStr.split(" ")[0].toIntOrNull() ?: 99) <= 5)) {
                         holder.txtTiempo.setTextColor(Color.parseColor("#4CAF50")) // Verde
                     } else if (tiempoStr.contains("min") && (tiempoStr.split(" ")[0].toIntOrNull() ?: 99) <= 15) {
@@ -419,19 +419,16 @@ class RutasAdapter(
 
     // Función principal que decide qué tiempo mostrar
     private fun obtenerTiempoLlegada(routeId: String, directionId: Int): String? {
-        // Si no hay datos básicos, no hacemos nada (ej. lista general)
         if (currentStopLocation == null && currentStopId == null) return null
         if (feedEntities == null) return null
 
         // 1. INTENTO DE PREDICCIÓN EXACTA (GTFS-RT tripUpdate)
-        // Buscamos si la API nos dice a qué hora llega esta micro a este paradero
         if (currentStopId != null) {
             val prediccion = buscarPrediccionEnApi(routeId, directionId, currentStopId)
             if (prediccion != null) return prediccion
         }
 
-        // 2. FALLBACK: CÁLCULO GPS (Distancia lineal)
-        // Si la API no traía predicción, calculamos distancia aproximada
+        // 2. FALLBACK: CÁLCULO GPS INTELIGENTE (Considera Trazado/Shape)
         if (currentStopLocation != null) {
             return calcularTiempoGPS(routeId, directionId, currentStopLocation)
         }
@@ -442,7 +439,6 @@ class RutasAdapter(
     private fun buscarPrediccionEnApi(routeId: String, directionId: Int, stopId: String): String? {
         val nowSeconds = System.currentTimeMillis() / 1000
 
-        // Filtramos entidades que tengan TripUpdate para esta ruta
         val tripUpdates = feedEntities!!.filter {
             it.hasTripUpdate() &&
                     it.tripUpdate.trip.routeId == routeId &&
@@ -451,20 +447,24 @@ class RutasAdapter(
 
         for (entity in tripUpdates) {
             val stopUpdates = entity.tripUpdate.stopTimeUpdateList
-            // Buscamos nuestro paradero en la lista de paradas futuras de ese viaje
             val match = stopUpdates.find { it.stopId == stopId && it.hasArrival() }
 
             if (match != null) {
                 val arrivalTime = match.arrival.time
                 val diffMinutes = (arrivalTime - nowSeconds) / 60
+
+                // Si la predicción es muy vieja (ej. -5 min), ignorarla, ya pasó.
+                if (diffMinutes < -2) return null
+
                 return if (diffMinutes <= 0) "Llegando" else "$diffMinutes min"
             }
         }
         return null
     }
 
+    // --- NUEVA LÓGICA: DISTANCIA SOBRE TRAZADO (Shape) ---
     private fun calcularTiempoGPS(routeId: String, directionId: Int, stopLocation: LatLng): String? {
-        // Filtramos buses con posición GPS
+        // 1. Filtrar buses de esta línea
         val busesDeLaLinea = feedEntities!!.filter {
             it.hasVehicle() &&
                     it.vehicle.hasTrip() &&
@@ -474,7 +474,92 @@ class RutasAdapter(
 
         if (busesDeLaLinea.isEmpty()) return null
 
-        val busMasCercano = busesDeLaLinea.minByOrNull { entity ->
+        // 2. Obtener el trazado (Shape) de esta ruta para saber el orden de la calle
+        val trip = GtfsDataManager.trips.values.find { it.routeId == routeId && it.directionId == directionId }
+        val shapePoints = GtfsDataManager.shapes[trip?.shapeId]
+
+        // Si no hay shape, usamos el cálculo simple (línea recta) como respaldo
+        if (shapePoints.isNullOrEmpty()) {
+            return calcularTiempoGPSSimple(busesDeLaLinea, stopLocation)
+        }
+
+        // 3. Encontrar dónde está el paradero en el trazado (Índice del paradero)
+        val indiceParadero = encontrarIndiceMasCercano(shapePoints, stopLocation)
+
+        // 4. Buscar el bus que viene ANTES del paradero y está más cerca
+        var mejorTiempo: Int? = null
+
+        for (busEntity in busesDeLaLinea) {
+            val posBus = busEntity.vehicle.position
+            val latLngBus = LatLng(posBus.latitude.toDouble(), posBus.longitude.toDouble())
+
+            // ¿En qué parte del camino va este bus?
+            val indiceBus = encontrarIndiceMasCercano(shapePoints, latLngBus)
+
+            // --- FILTRO DE ORO: Si el bus va en un índice mayor, YA PASÓ ---
+            // (El bus ya recorrió más camino que donde está el paradero)
+            if (indiceBus > indiceParadero) continue
+            // ---------------------------------------------------------------
+
+            // Calcular distancia real sumando los puntos del camino (más preciso que línea recta)
+            var distanciaRealMetros = 0f
+            val results = FloatArray(1)
+
+            // Optimización: Si están muy lejos, dar pasos grandes, si cerca, pasos chicos
+            val paso = if ((indiceParadero - indiceBus) > 100) 5 else 1
+
+            for (i in indiceBus until indiceParadero step paso) {
+                if (i + paso < shapePoints.size) {
+                    Location.distanceBetween(
+                        shapePoints[i].latitude, shapePoints[i].longitude,
+                        shapePoints[i + paso].latitude, shapePoints[i + paso].longitude,
+                        results
+                    )
+                    distanciaRealMetros += results[0]
+                }
+            }
+
+            // Si está demasiado lejos (más de 20km), ignorar (posible error de vuelta anterior)
+            if (distanciaRealMetros > 20000) continue
+
+            // Velocidad promedio: 25 km/h = ~416 metros/minuto
+            val tiempoBus = (distanciaRealMetros / 416).toInt()
+
+            if (mejorTiempo == null || tiempoBus < mejorTiempo) {
+                mejorTiempo = tiempoBus
+            }
+        }
+
+        return if (mejorTiempo != null) {
+            if (mejorTiempo <= 0) "Llegando" else "$mejorTiempo min"
+        } else {
+            null
+        }
+    }
+
+    private fun encontrarIndiceMasCercano(puntos: List<LatLng>, objetivo: LatLng): Int {
+        var minDist = Float.MAX_VALUE
+        var index = 0
+        val results = FloatArray(1)
+
+        // Recorremos los puntos del trazado para ver cuál está más cerca de la coord objetivo
+        for (i in puntos.indices) {
+            Location.distanceBetween(
+                objetivo.latitude, objetivo.longitude,
+                puntos[i].latitude, puntos[i].longitude,
+                results
+            )
+            if (results[0] < minDist) {
+                minDist = results[0]
+                index = i
+            }
+        }
+        return index
+    }
+
+    // Método antiguo de respaldo (Distancia lineal simple)
+    private fun calcularTiempoGPSSimple(buses: List<GtfsRealtime.FeedEntity>, stopLocation: LatLng): String? {
+        val busMasCercano = buses.minByOrNull { entity ->
             val pos = entity.vehicle.position
             val results = FloatArray(1)
             Location.distanceBetween(
@@ -492,12 +577,10 @@ class RutasAdapter(
             stopLocation.latitude, stopLocation.longitude,
             results
         )
-        val distanciaMetros = results[0]
-
-        if (distanciaMetros > 20000) return null // Muy lejos
-
-        val tiempoMinutos = (distanciaMetros / 416).toInt() // 25 km/h aprox
-        return if (tiempoMinutos <= 0) "Llegando" else "$tiempoMinutos min"
+        val distancia = results[0]
+        if (distancia > 20000) return null
+        val tiempo = (distancia / 416).toInt()
+        return if (tiempo <= 0) "Llegando" else "$tiempo min"
     }
 
     override fun getItemCount(): Int =
