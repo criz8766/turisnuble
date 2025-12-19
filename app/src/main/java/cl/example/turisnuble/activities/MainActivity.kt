@@ -440,72 +440,57 @@ class MainActivity : AppCompatActivity(),
         setContentView(R.layout.activity_main)
 
         // --- GESTIÓN INTELIGENTE DEL BOTÓN ATRÁS (Lógica Completa) ---
+        // --- GESTIÓN INTELIGENTE DEL BOTÓN ATRÁS (Lógica Completa) ---
+        // --- GESTIÓN DEL BOTÓN ATRÁS (Simplificada para limpiar paraderos) ---
+        // --- GESTIÓN DEL BOTÓN ATRÁS DEL SISTEMA ---
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
 
-                // NIVEL 1: Fragmentos abiertos (Turismo / Detalle Ruta)
-                // Si hay una ventana superpuesta, la cerramos correctamente.
+                // 1. Si hay un detalle abierto (Turismo o Ruta individual), ciérralo.
                 if (supportFragmentManager.backStackEntryCount > 0) {
-                    hideDetailFragment() // Usamos esta función para limpiar visualmente también
+                    hideDetailFragment()
                     return
                 }
 
-                // NIVEL 1.5: MEMORIA DE TURISMO (Volver a la ficha turística)
-                // Si guardamos un punto turístico en el ViewModel, volvemos a él.
-                val puntoRetorno = sharedViewModel.puntoTuristicoRetorno
-                if (puntoRetorno != null) {
-                    // 1. Limpiamos la memoria
-                    sharedViewModel.puntoTuristicoRetorno = null
-
-                    // 2. Limpiamos el mapa (rutas y paraderos seleccionados)
-                    clearRoutes(recenterToUser = false)
-
-                    // 3. Volvemos a abrir el detalle del punto turístico
-                    showTurismoDetail(puntoRetorno)
-                    return
-                }
-
-                // NIVEL 2: Limpiar mapa general (Selecciones, rutas dibujadas)
-                // Si hay algo seleccionado en el mapa, lo limpiamos y volvemos al inicio.
+                // 2. DETECTAR SI ESTAMOS EN UN PARADERO (O con algo seleccionado)
                 if (selectedRouteId != null || currentSelectedStopId != null || currentInfoMarker != null) {
 
-                    // 1. Limpiamos las líneas y colores del mapa
+                    // A) Limpiar Mapa: Borra líneas y colores
                     clearRoutes(recenterToUser = false)
 
-                    // 2. Bajamos el menú inferior (si quedó arriba)
+                    // B) Limpiar Datos: ¡CRUCIAL! Borra la lista de micros del paradero anterior
+                    sharedViewModel.setRouteFilter(emptyList())
+
+                    // C) Limpiar UI: Oculta mensajes y asegura que el menú sea visible
+                    hideCustomNotification()
+                    findViewById<View>(R.id.bottom_sheet_content).visibility = View.VISIBLE
+
+                    // D) Restaurar Menú: Lo colapsa (baja)
                     if (::bottomSheetBehavior.isInitialized) {
                         bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
                     }
 
-                    // 3. ¡EL CAMBIO CLAVE!: Volvemos a la Pestaña 0 ("Rutas cerca")
-                    // Esto saca al usuario de la pestaña de detalle del paradero.
+                    // E) NAVEGACIÓN: Te devuelve a la pestaña inicial "Rutas Cerca"
                     viewPager.setCurrentItem(0, true)
 
                     return
                 }
 
-                // NIVEL 3: Colapsar BottomSheet si está expandido manualmente
+                // 3. Si el menú está subido manualmente sin selección, bájalo.
                 if (::bottomSheetBehavior.isInitialized && bottomSheetBehavior.state == BottomSheetBehavior.STATE_EXPANDED) {
                     bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
                     return
                 }
 
-                // NIVEL 4: Salir de la App (Doble confirmación)
+                // 4. Salir de la App (Doble confirmación)
                 if (doubleBackToExitPressedOnce) {
                     finish()
                     return
                 }
 
                 doubleBackToExitPressedOnce = true
-                Toast.makeText(
-                    this@MainActivity,
-                    "Presiona atrás de nuevo para salir",
-                    Toast.LENGTH_SHORT
-                ).show()
-
-                Handler(Looper.getMainLooper()).postDelayed({
-                    doubleBackToExitPressedOnce = false
-                }, 2000)
+                Toast.makeText(this@MainActivity, "Presiona atrás de nuevo para salir", Toast.LENGTH_SHORT).show()
+                Handler(Looper.getMainLooper()).postDelayed({ doubleBackToExitPressedOnce = false }, 2000)
             }
         })
         // -------------------------------------------------------------
