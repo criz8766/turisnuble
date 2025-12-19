@@ -439,49 +439,58 @@ class MainActivity : AppCompatActivity(),
         MapLibre.getInstance(this)
         setContentView(R.layout.activity_main)
 
-        // --- GESTIÓN INTELIGENTE DEL BOTÓN ATRÁS ---
-        // --- GESTIÓN INTELIGENTE DEL BOTÓN ATRÁS ---
+        // --- GESTIÓN INTELIGENTE DEL BOTÓN ATRÁS (Lógica Completa) ---
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
 
-                // NIVEL 1: Fragmentos abiertos en la pila
+                // NIVEL 1: Fragmentos abiertos (Turismo / Detalle Ruta)
+                // Si hay una ventana superpuesta, la cerramos correctamente.
                 if (supportFragmentManager.backStackEntryCount > 0) {
-                    supportFragmentManager.popBackStack()
+                    hideDetailFragment() // Usamos esta función para limpiar visualmente también
                     return
                 }
 
-                // --- CORRECCIÓN AQUÍ ---
-                // 1. Capturamos el valor en una variable local inmutable (SNAPSHOT)
+                // NIVEL 1.5: MEMORIA DE TURISMO (Volver a la ficha turística)
+                // Si guardamos un punto turístico en el ViewModel, volvemos a él.
                 val puntoRetorno = sharedViewModel.puntoTuristicoRetorno
-
-                // 2. Comprobamos si la variable local tiene datos
                 if (puntoRetorno != null) {
-
-                    // 3. Limpiamos la "caja fuerte" para la próxima vez
+                    // 1. Limpiamos la memoria
                     sharedViewModel.puntoTuristicoRetorno = null
 
-                    // 4. Limpiamos las rutas del mapa
+                    // 2. Limpiamos el mapa (rutas y paraderos seleccionados)
                     clearRoutes(recenterToUser = false)
 
-                    // 5. Usamos la variable local 'puntoRetorno' (Kotlin ya sabe que es segura)
+                    // 3. Volvemos a abrir el detalle del punto turístico
                     showTurismoDetail(puntoRetorno)
                     return
                 }
-                // -----------------------
 
-                // NIVEL 2: Limpiar mapa general
+                // NIVEL 2: Limpiar mapa general (Selecciones, rutas dibujadas)
+                // Si hay algo seleccionado en el mapa, lo limpiamos y volvemos al inicio.
                 if (selectedRouteId != null || currentSelectedStopId != null || currentInfoMarker != null) {
+
+                    // 1. Limpiamos las líneas y colores del mapa
                     clearRoutes(recenterToUser = false)
+
+                    // 2. Bajamos el menú inferior (si quedó arriba)
+                    if (::bottomSheetBehavior.isInitialized) {
+                        bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+                    }
+
+                    // 3. ¡EL CAMBIO CLAVE!: Volvemos a la Pestaña 0 ("Rutas cerca")
+                    // Esto saca al usuario de la pestaña de detalle del paradero.
+                    viewPager.setCurrentItem(0, true)
+
                     return
                 }
 
-                // NIVEL 3: Colapsar BottomSheet
+                // NIVEL 3: Colapsar BottomSheet si está expandido manualmente
                 if (::bottomSheetBehavior.isInitialized && bottomSheetBehavior.state == BottomSheetBehavior.STATE_EXPANDED) {
                     bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
                     return
                 }
 
-                // NIVEL 4: Salir
+                // NIVEL 4: Salir de la App (Doble confirmación)
                 if (doubleBackToExitPressedOnce) {
                     finish()
                     return
@@ -499,16 +508,16 @@ class MainActivity : AppCompatActivity(),
                 }, 2000)
             }
         })
-        // ---------------------------------------------
+        // -------------------------------------------------------------
 
-        // Configuración de UI Sistema
+        // Configuración de UI Sistema (Barra de navegación blanca)
         window.navigationBarColor = Color.WHITE
 
-        // Inicializaciones
+        // Inicializaciones básicas
         auth = FirebaseAuth.getInstance()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        // BottomSheet
+        // Configuración del BottomSheet (Menú inferior)
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
         val screenHeight = resources.displayMetrics.heightPixels
@@ -517,35 +526,39 @@ class MainActivity : AppCompatActivity(),
         bottomSheetBehavior.peekHeight = peekHeightInPixels
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
 
+        // Configuración de Pestañas y Callback del menú
         setupTabs()
         setupBottomSheetCallback()
 
-        // Mapa
+        // Inicialización del Mapa
         mapView = findViewById(R.id.mapView)
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync(this)
 
-        // Botones Flotantes (FABs)
+        // --- BOTONES FLOTANTES (FABs) ---
+
+        // 1. Botón de Ubicación
         locationFab = findViewById(R.id.location_fab)
         locationFab.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             when (locationButtonState) {
-                0 -> { // Centrar
+                0 -> { // Modo: Centrar en usuario
                     val locationComponent = map.locationComponent
                     if (locationComponent.isLocationComponentActivated) {
                         locationComponent.cameraMode = CameraMode.TRACKING
                         locationComponent.renderMode = RenderMode.NORMAL
-                        locationButtonState = 1
+                        locationButtonState = 1 // Siguiente click será Reset
                         Toast.makeText(this, "Centrado en tu ubicación", Toast.LENGTH_SHORT).show()
                     }
                 }
-                1 -> { // Reset Total
+                1 -> { // Modo: Reset Total (Limpiar rutas y centrar)
                     clearRoutes(recenterToUser = true)
                     locationButtonState = 0
                 }
             }
         }
 
+        // 2. Botón de Estilo de Mapa
         mapStyleFab = findViewById(R.id.map_style_fab)
         mapStyleFab.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
@@ -557,60 +570,39 @@ class MainActivity : AppCompatActivity(),
             }
         }
 
+        // 3. Botón de Capas (Filtro)
         val layersFab: FloatingActionButton = findViewById(R.id.layers_fab)
         layersFab.setOnClickListener {
             showLayerFilterDialog()
         }
 
-        // Búsqueda
+        // --- CONFIGURACIÓN DE BÚSQUEDA ---
         searchView = findViewById(R.id.search_view)
         setupSearchListener()
         searchAdapter = SearchAdapter(emptyList()) { searchResult ->
             onSearchResultClicked(searchResult)
         }
 
-        // Notificaciones personalizadas
+        searchResultsRecyclerView = findViewById(R.id.search_results_recyclerview)
+        searchResultsRecyclerView.layoutManager = LinearLayoutManager(this)
+        searchResultsRecyclerView.adapter = searchAdapter
+
+        // --- CONFIGURACIÓN DE NOTIFICACIONES ---
         customNotificationView = findViewById(R.id.custom_notification_container)
         customNotificationMessage = customNotificationView.findViewById(R.id.tv_notification_message)
         customNotificationDismiss = customNotificationView.findViewById(R.id.btn_notification_dismiss)
         customNotificationDismiss.setOnClickListener { hideCustomNotification() }
 
-        searchResultsRecyclerView = findViewById(R.id.search_results_recyclerview)
-        searchResultsRecyclerView.layoutManager = LinearLayoutManager(this)
-        searchResultsRecyclerView.adapter = searchAdapter
+        // --- OBSERVADORES DEL VIEWMODEL ---
 
-        // Observadores del ViewModel
+        // 1. Paraderos Cercanos
         sharedViewModel.nearbyStops.observe(this) { nearbyStops ->
             if (selectedRouteId == null) {
                 showAllStops()
             }
         }
 
-        // Gestión de visibilidad del BottomSheet al volver
-        val bottomSheetContent = findViewById<View>(R.id.bottom_sheet_content)
-        supportFragmentManager.addOnBackStackChangedListener {
-            if (supportFragmentManager.backStackEntryCount == 0) {
-                // Volvimos al menú principal
-                val currentScreenHeight = resources.displayMetrics.heightPixels
-                bottomSheetBehavior.maxHeight = (currentScreenHeight * 0.40).toInt()
-                bottomSheetContent.visibility = View.VISIBLE
-
-                // Restaurar lógica de ubicación
-                sharedViewModel.setNearbyCalculationCenter(null)
-                if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                    fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
-                        loc?.let { findAndShowStopsAroundPoint(it.latitude, it.longitude) }
-                            ?: findAndShowStopsAroundPoint(-36.606, -72.102)
-                    }
-                } else {
-                    findAndShowStopsAroundPoint(-36.606, -72.102)
-                }
-            } else {
-                // Estamos en un detalle (Turismo u otro)
-                bottomSheetContent.visibility = View.GONE
-            }
-        }
-
+        // 2. Paradero Seleccionado
         sharedViewModel.selectedStopId.observe(this) { stopId ->
             currentSelectedStopId = stopId
             if (selectedRouteId == null) {
@@ -623,7 +615,36 @@ class MainActivity : AppCompatActivity(),
             }
         }
 
-        // Menú de opciones (Tres puntos)
+        // --- LOGICA VISUAL AL VOLVER DE UN FRAGMENTO ---
+        val bottomSheetContent = findViewById<View>(R.id.bottom_sheet_content)
+        supportFragmentManager.addOnBackStackChangedListener {
+            if (supportFragmentManager.backStackEntryCount == 0) {
+                // VOLVIMOS AL MAPA PRINCIPAL:
+
+                // 1. Restaurar altura del menú
+                val currentScreenHeight = resources.displayMetrics.heightPixels
+                bottomSheetBehavior.maxHeight = (currentScreenHeight * 0.40).toInt()
+
+                // 2. Mostrar contenido del menú
+                bottomSheetContent.visibility = View.VISIBLE
+
+                // 3. Restaurar lógica de ubicación para paraderos cercanos
+                sharedViewModel.setNearbyCalculationCenter(null)
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
+                        loc?.let { findAndShowStopsAroundPoint(it.latitude, it.longitude) }
+                            ?: findAndShowStopsAroundPoint(-36.606, -72.102)
+                    }
+                } else {
+                    findAndShowStopsAroundPoint(-36.606, -72.102)
+                }
+            } else {
+                // ESTAMOS EN UN DETALLE: Ocultar menú principal
+                bottomSheetContent.visibility = View.GONE
+            }
+        }
+
+        // --- MENÚ DE OPCIONES (TRES PUNTOS) ---
         val optionsMenuButton = findViewById<ImageView>(R.id.optionsMenuButton)
         optionsMenuButton.setOnClickListener { view ->
             val popup = PopupMenu(this, view)
@@ -648,6 +669,7 @@ class MainActivity : AppCompatActivity(),
             popup.show()
         }
 
+        // Procesar intent inicial (si se abrió desde una notificación o link)
         processIntent(intent)
     }// --- FIN DE onCreate ---
 
