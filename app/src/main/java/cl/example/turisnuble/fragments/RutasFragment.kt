@@ -119,7 +119,9 @@ class RutasFragment : Fragment() {
 
         sharedViewModel.routeFilter.observe(viewLifecycleOwner) { filter ->
             if (filter == null) {
-                if (!isShowingList) showCategories()
+                // CORRECCIÓN: Quitamos la condición (!isShowingList).
+                // Si es null, SIEMPRE volvemos a categorías, sin importar qué había antes.
+                showCategories()
             } else {
                 showFilteredList(filter)
             }

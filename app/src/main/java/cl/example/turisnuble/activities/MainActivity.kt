@@ -440,9 +440,6 @@ class MainActivity : AppCompatActivity(),
         setContentView(R.layout.activity_main)
 
         // --- GESTIÓN INTELIGENTE DEL BOTÓN ATRÁS (Lógica Completa) ---
-        // --- GESTIÓN INTELIGENTE DEL BOTÓN ATRÁS (Lógica Completa) ---
-        // --- GESTIÓN DEL BOTÓN ATRÁS (Simplificada para limpiar paraderos) ---
-        // --- GESTIÓN DEL BOTÓN ATRÁS DEL SISTEMA ---
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
 
@@ -452,25 +449,28 @@ class MainActivity : AppCompatActivity(),
                     return
                 }
 
-                // 2. DETECTAR SI ESTAMOS EN UN PARADERO (O con algo seleccionado)
+                // 2. SI HAY ALGO SELECCIONADO (Paradero, Ruta, etc.) -> LIMPIAR
                 if (selectedRouteId != null || currentSelectedStopId != null || currentInfoMarker != null) {
 
                     // A) Limpiar Mapa: Borra líneas y colores
                     clearRoutes(recenterToUser = false)
 
-                    // B) Limpiar Datos: ¡CRUCIAL! Borra la lista de micros del paradero anterior
-                    sharedViewModel.setRouteFilter(emptyList())
+                    // B) CORRECCIÓN CLAVE: Usamos 'null' para volver a las Categorías
+                    // (Antes usábamos emptyList(), por eso salía "Resultados" vacíos)
+                    sharedViewModel.setRouteFilter(null)
 
-                    // C) Limpiar UI: Oculta mensajes y asegura que el menú sea visible
+                    // C) Limpiar UI: Oculta mensajes flotantes
                     hideCustomNotification()
                     findViewById<View>(R.id.bottom_sheet_content).visibility = View.VISIBLE
 
-                    // D) Restaurar Menú: Lo colapsa (baja)
+                    // D) Restaurar Menú: Lo bajamos (colapsado)
                     if (::bottomSheetBehavior.isInitialized) {
                         bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
                     }
 
-                    // E) NAVEGACIÓN: Te devuelve a la pestaña inicial "Rutas Cerca"
+                    // E) NAVEGACIÓN: Vuelve a la pestaña 0 (Mapa/Rutas Cerca)
+                    // Al haber puesto 'null' arriba, si el usuario vuelve a la pestaña de Rutas,
+                    // verá las categorías ("Micros de Chillán") y no "Resultados".
                     viewPager.setCurrentItem(0, true)
 
                     return
@@ -482,7 +482,7 @@ class MainActivity : AppCompatActivity(),
                     return
                 }
 
-                // 4. Salir de la App (Doble confirmación)
+                // 4. Salir de la App
                 if (doubleBackToExitPressedOnce) {
                     finish()
                     return
