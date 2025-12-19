@@ -463,16 +463,6 @@ class MainActivity : AppCompatActivity(),
                     hideCustomNotification()
                     findViewById<View>(R.id.bottom_sheet_content).visibility = View.VISIBLE
 
-                    // D) Restaurar Menú: Lo bajamos (colapsado)
-                    if (::bottomSheetBehavior.isInitialized) {
-                        bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
-                    }
-
-                    // E) NAVEGACIÓN: Vuelve a la pestaña 0 (Mapa/Rutas Cerca)
-                    // Al haber puesto 'null' arriba, si el usuario vuelve a la pestaña de Rutas,
-                    // verá las categorías ("Micros de Chillán") y no "Resultados".
-                    viewPager.setCurrentItem(0, true)
-
                     return
                 }
 
