@@ -578,14 +578,27 @@ class MainActivity : AppCompatActivity(),
         }
 
         // 2. Paradero Seleccionado
+        // 2. Paradero Seleccionado
+        // 2. Paradero Seleccionado (CORREGIDO)
         sharedViewModel.selectedStopId.observe(this) { stopId ->
-            currentSelectedStopId = stopId
+            currentSelectedStopId = stopId // Actualizamos la variable local siempre
+
+            // CASO 1: Vista General (Sin ruta seleccionada)
             if (selectedRouteId == null) {
                 if (stopId != null) {
                     val stop = GtfsDataManager.stops[stopId]
                     if (stop != null) showParaderosOnMap(listOf(stop))
                 } else {
                     showAllStops()
+                }
+            }
+            // CASO 2: Vista de Ruta (Con ruta seleccionada) - AQUÍ ESTABA EL PROBLEMA
+            else {
+                // Si ya estamos viendo una ruta y seleccionamos un paradero de la lista,
+                // necesitamos redibujar los paraderos de esa ruta para que el icono cambie a "Selected".
+                if (selectedDirectionId != null) {
+                    val paraderosDeRuta = GtfsDataManager.getStopsForRoute(selectedRouteId!!, selectedDirectionId!!)
+                    showParaderosOnMap(paraderosDeRuta)
                 }
             }
         }

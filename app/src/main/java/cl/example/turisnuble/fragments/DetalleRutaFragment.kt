@@ -11,12 +11,14 @@ import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels // IMPORT NUEVO
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import cl.example.turisnuble.R
 import cl.example.turisnuble.data.FavoritesManager
 import cl.example.turisnuble.data.GtfsDataManager
 import cl.example.turisnuble.data.GtfsStop
+import cl.example.turisnuble.data.SharedViewModel // IMPORT NUEVO
 import cl.example.turisnuble.utils.MapMover
 import cl.example.turisnuble.utils.ParaderoActionHandler
 import com.google.firebase.auth.FirebaseAuth
@@ -30,6 +32,9 @@ class DetalleRutaFragment : Fragment() {
 
     private var mapMover: MapMover? = null
     private var paraderoActionHandler: ParaderoActionHandler? = null
+
+    // 1. Comunicación con el ViewModel para avisar la selección
+    private val sharedViewModel: SharedViewModel by activityViewModels()
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -75,10 +80,15 @@ class DetalleRutaFragment : Fragment() {
             recyclerView.adapter = ParaderosDetalleAdapter(
                 paraderos,
                 onItemClick = { paraderoSeleccionado ->
+                    // 2. Avisamos al ViewModel que se seleccionó un paradero
+                    // Esto hará que MainActivity repinte los íconos (Selected vs Normal)
+                    sharedViewModel.selectStop(paraderoSeleccionado.stopId)
+
+                    // Centramos el mapa
                     mapMover?.centerMapOnPoint(
                         paraderoSeleccionado.location.latitude,
                         paraderoSeleccionado.location.longitude
-                    ) // Corregido: .lat .lon
+                    )
                 },
                 onGetDirectionsClick = { paraderoSeleccionado ->
                     paraderoActionHandler?.onGetDirectionsToStop(paraderoSeleccionado)
